@@ -1,6 +1,11 @@
 # ============================================================================
-#  WildRig GPU miner for SaladCloud  (AMD GPU classes, ROCm-on-WSL / DXG)
-#  Mines Quai (KawPow) by default; also does Pearl/PRL (PearlHash) via env.
+#  Quai (KawPow) GPU miner for SaladCloud  (AMD GPU classes, ROCm-on-WSL / DXG)
+#
+#  Ships THREE miners and lets the entrypoint pick the first one that actually
+#  produces accepted shares on the node it lands on:
+#    1. TeamRedMiner  (AMD-only, precompiled kernels, KawPow on RDNA3 + ROCm)
+#    2. SRBMiner-MULTI
+#    3. WildRig-Multi (known NOT to hash under ROCm OpenCL - kept as last resort)
 #
 #  How AMD GPUs work on SaladCloud (per Salad's AMD/ROCm docs):
 #    * The GPU is /dev/dxg (WSL bridge). There is NO /dev/kfd or /dev/dri.
@@ -32,20 +37,16 @@
 #    Environment Variables:
 #      WALLET = <your payout address>            (REQUIRED)
 #      POOL   = <pool host:port>                 (see options below)
-#      ALGO   = kawpow (Quai)  |  pearlhash (Pearl/PRL)
+#      ALGO   = kawpow (Quai)
+#      MINERS = "trm srb wildrig"  order to try (optional)
 #      WORKER = optional; Salad's machine id is used automatically if unset
 #
-#  ---- POOL / COIN options --------------------------------------------------
+#  ---- POOL options ---------------------------------------------------------
 #    Quai (KawPow) - HeroMiners:
-#      ALGO   = kawpow
 #      POOL   = stratum+tcp://ca.quai.herominers.com:1185   (us./de. also exist)
 #      WALLET = your Pelagus Cyprus-1 zone address (0x00... )
 #    Quai (KawPow) - 2Miners (alternative):
 #      POOL   = stratum+tcp://quai-kawpow.2miners.com:5555  (check 2miners.com for region ports)
-#    Pearl / PRL (PearlHash):
-#      ALGO   = pearlhash
-#      POOL   = stratum+ssl://pool.pearlhash.xyz:9000
-#      WALLET = your prl1... address
 #
 #  ---- HONEST NOTE ON ECONOMICS ---------------------------------------------
 #    On public SaladCloud rental prices, renting a GPU to mine generally LOSES
@@ -59,26 +60,44 @@ FROM rocm/dev-ubuntu-24.04:7.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# OpenCL runtime + ICD loader so WildRig can see the AMD platform.
+# OpenCL runtime + ICD loader so the miners can see the AMD platform.
 # Package name differs across ROCm releases, so try both. The ROCm package can
 # register the AMD platform twice (two .icd files); keep exactly one so the
 # GPU isn't enumerated twice.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates wget ocl-icd-libopencl1 clinfo \
+      ca-certificates wget ocl-icd-libopencl1 clinfo procps \
     && (apt-get install -y --no-install-recommends rocm-opencl-runtime \
         || apt-get install -y --no-install-recommends rocm-opencl) \
     && mkdir -p /etc/OpenCL/vendors \
     && (ls /etc/OpenCL/vendors/amdocl64.icd >/dev/null 2>&1 \
         || echo "/opt/rocm/lib/libamdocl64.so" > /etc/OpenCL/vendors/amdocl64.icd) \
     && rm -rf /var/lib/apt/lists/* \
-    && echo "--- ICD files before dedupe:" && ls -la /etc/OpenCL/vendors && cat /etc/OpenCL/vendors/* \
     && for f in /etc/OpenCL/vendors/*; do [ "$f" = /etc/OpenCL/vendors/amdocl64.icd ] || rm -f "$f"; done \
-    && echo "--- ICD files after dedupe:" && ls -la /etc/OpenCL/vendors && cat /etc/OpenCL/vendors/*
+    && ls -la /etc/OpenCL/vendors && cat /etc/OpenCL/vendors/*
 
+# --- 1. TeamRedMiner --------------------------------------------------------
+ARG TRM_VERSION=0.10.21
+RUN wget -qO /tmp/trm.tgz \
+      https://github.com/todxx/teamredminer/releases/download/v${TRM_VERSION}/teamredminer-v${TRM_VERSION}-linux.tgz \
+ && mkdir -p /opt/trm \
+ && tar xzf /tmp/trm.tgz -C /opt/trm --strip-components=1 \
+ && rm /tmp/trm.tgz \
+ && chmod +x /opt/trm/teamredminer
+
+# --- 2. SRBMiner-MULTI ------------------------------------------------------
+ARG SRB_VERSION=3.6.9
+RUN wget -qO /tmp/srb.tgz \
+      https://github.com/doktor83/SRBMiner-Multi/releases/download/${SRB_VERSION}/SRBMiner-Multi-$(echo ${SRB_VERSION} | tr . -)-Linux.tar.gz \
+ && mkdir -p /opt/srb \
+ && tar xzf /tmp/srb.tgz -C /opt/srb --strip-components=1 \
+ && rm /tmp/srb.tgz \
+ && chmod +x /opt/srb/SRBMiner-MULTI
+
+# --- 3. WildRig-Multi (last resort) ----------------------------------------
 ARG WILDRIG_VERSION=0.51.2
-WORKDIR /opt/wildrig
 RUN wget -qO /tmp/w.tgz \
       https://github.com/andru-kun/wildrig-multi/releases/download/${WILDRIG_VERSION}/wildrig-multi-linux-${WILDRIG_VERSION}.tar.gz \
+ && mkdir -p /opt/wildrig \
  && tar xzf /tmp/w.tgz -C /opt/wildrig \
  && rm /tmp/w.tgz \
  && chmod +x /opt/wildrig/wildrig-multi
@@ -90,7 +109,9 @@ RUN wget -qO /tmp/w.tgz \
 ENV ALGO=kawpow \
     POOL=stratum+tcp://ca.quai.herominers.com:1185 \
     WALLET=REPLACE_WITH_YOUR_WALLET \
-    WORKER=salad01
+    WORKER=salad01 \
+    MINERS="trm srb wildrig" \
+    NO_SHARE_TIMEOUT=300
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

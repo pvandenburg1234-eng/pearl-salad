@@ -1,7 +1,15 @@
 # Quai (KawPow) GPU miner container for SaladCloud — AMD GPUs
 
-Container image that runs [WildRig-Multi](https://github.com/andru-kun/wildrig-multi)
-on SaladCloud AMD GPU classes (RX 6000 / RX 7000) and mines Quai over KawPow.
+Container image for SaladCloud AMD GPU classes (RX 6000 / RX 7000) that mines
+Quai over KawPow. It bundles three miners and auto-selects the first one that
+produces an accepted share on the node it lands on:
+
+1. [TeamRedMiner](https://github.com/todxx/teamredminer) — AMD-only, precompiled
+   kernels, KawPow supported on RDNA3 under ROCm drivers (2% devfee)
+2. [SRBMiner-MULTI](https://github.com/doktor83/SRBMiner-Multi) (0.85% devfee)
+3. [WildRig-Multi](https://github.com/andru-kun/wildrig-multi) — last resort;
+   under ROCm's OpenCL its ProgPoW kernel either fails to build or runs with
+   `CL_INVALID_ARG_INDEX` and never hashes (0.75% devfee)
 
 **Read the economics note in `Dockerfile` first.** Renting GPUs to mine is usually
 a net loss; test with one replica for 24 h before scaling.
@@ -53,8 +61,9 @@ Environment variables:
 | `POOL` | `stratum+tcp://ca.quai.herominers.com:1185` (default; `us.` / `de.` regions also exist) |
 | `ALGO` | `kawpow` (default) |
 | `WORKER` | optional label; Salad's machine id is used if unset |
-| `WILDRIG_EXTRA_ARGS` | optional extra WildRig flags |
-| `PROGPOW_KERNELS` | kernel variants to try, default `1 2 0` (ROCm's OpenCL compiler can't build every variant; the entrypoint auto-falls-back) |
+| `MINERS` | order to try, default `trm srb wildrig`. Pin one with e.g. `MINERS=trm` |
+| `NO_SHARE_TIMEOUT` | seconds a miner gets to produce an accepted share before the next is tried (default `300`) |
+| `TRM_EXTRA_ARGS` / `SRB_EXTRA_ARGS` / `WILDRIG_EXTRA_ARGS` | optional extra flags per miner |
 
 ## 4. Verify
 
@@ -62,7 +71,8 @@ Open the container's logs in the Salad portal. You should see:
 
 1. `rocminfo` listing an agent with a `gfx…` name (GPU visible).
 2. `clinfo -l` showing an AMD platform.
-3. WildRig printing accepted shares within a couple of minutes.
+3. `=== [trm] starting ...` then, within a few minutes,
+   `=== [trm] ACCEPTED SHARE - this miner works on this node ===`.
 
 Then check `https://quai.herominers.com/` with your wallet address to see
 hashrate and estimated earnings; compare that to what Salad bills per hour.
@@ -72,13 +82,14 @@ hashrate and estimated earnings; compare that to what Salad bills per hour.
 | Symptom | Cause / fix |
 |---|---|
 | `HSA_STATUS_ERROR_OUT_OF_RESOURCES` in rocminfo | Image ROCm < 7.1 or something overwrote `LD_LIBRARY_PATH`. Don't set those in Dockerfile/entrypoint. |
-| `CL_BUILD_PROGRAM_FAILURE when calling clBuildProgram` | ROCm's OpenCL compiler rejected that ProgPoW kernel variant; the entrypoint tries `--progpow-kernel 1`, `2`, `0` in turn. Pin the one that works with `PROGPOW_KERNELS=1`. |
+| `no accepted share after 300s - killing and trying next miner` | That miner can't hash on this node's driver stack; the entrypoint moves on. Once you see `ACCEPTED SHARE - this miner works`, pin it with `MINERS=<name>` to skip the probing on future reallocations. |
+| WildRig: `CL_BUILD_PROGRAM_FAILURE` / `CL_INVALID_ARG_INDEX ... kawpow_phase3` | Expected under ROCm OpenCL — WildRig targets AMD's proprietary driver. That's why it's last in the list. |
 | `no OpenCL devices found` but rocminfo works | OpenCL ICD missing — check `/etc/OpenCL/vendors/amdocl64.icd` exists and points to a real `libamdocl64.so`. |
 | Instance keeps restarting | Batch priority nodes get reallocated; that's normal. Check for `ERROR: set the WALLET` in logs. |
 | Works locally, fails on Salad | Salad's AMD path is ROCm-on-WSL, not native ROCm; only test on Salad. |
 
 ## Files
 
-- `Dockerfile` — image definition (ROCm 7.2 base + WildRig)
-- `entrypoint.sh` — readiness checks + miner launch
+- `Dockerfile` — image definition (ROCm 7.2 base + TeamRedMiner, SRBMiner, WildRig)
+- `entrypoint.sh` — readiness checks + miner selection by accepted shares
 - `.github/workflows/build.yml` — builds and pushes to GHCR on every push to `main`

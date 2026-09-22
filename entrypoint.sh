@@ -1,6 +1,12 @@
 #!/bin/sh
-# Entrypoint for the WildRig / SaladCloud AMD image.
+# Entrypoint for the Quai/KawPow SaladCloud AMD image.
 # Do NOT export LD_LIBRARY_PATH or PYTHONPATH here - Salad injects them.
+#
+# Tries each miner in $MINERS in order. A miner "works" once it logs an
+# accepted share; if it exits, or produces no accepted share within
+# $NO_SHARE_TIMEOUT seconds, it is killed and the next miner is tried.
+# (WildRig under ROCm OpenCL runs forever without hashing - hence the
+# share-based check rather than an exit-code check.)
 
 set -u
 
@@ -12,6 +18,11 @@ fi
 WORKER_NAME="${SALAD_MACHINE_ID:-${WORKER:-salad01}}"
 # Salad machine ids are long UUIDs; pools usually cap worker names, so trim.
 WORKER_NAME="$(echo "$WORKER_NAME" | tr -cd 'A-Za-z0-9_-' | cut -c1-24)"
+USER_ARG="$WALLET.$WORKER_NAME"
+
+MINERS="${MINERS:-trm srb wildrig}"
+NO_SHARE_TIMEOUT="${NO_SHARE_TIMEOUT:-300}"
+LOG=/tmp/miner.log
 
 echo "=== GPU readiness check (rocminfo) ==="
 echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-<unset>}"
@@ -24,42 +35,80 @@ fi
 echo "=== OpenCL platforms (clinfo) ==="
 clinfo -l 2>&1 | head -20 || true
 
-# ROCm's OpenCL compiler doesn't build every WildRig ProgPoW kernel variant.
-# WildRig exits on CL_BUILD_PROGRAM_FAILURE, so try each variant in turn and
-# only treat a run as "working" if it survives longer than MIN_RUN_SECONDS.
-# Override with PROGPOW_KERNELS="1" to pin one, or WILDRIG_EXTRA_ARGS for
-# any other flags.
-PROGPOW_KERNELS="${PROGPOW_KERNELS:-1 2 0}"
-MIN_RUN_SECONDS="${MIN_RUN_SECONDS:-90}"
+# Print the miner command for a given name. Pool URL for SRBMiner must not
+# carry the stratum+tcp:// scheme.
+POOL_HOSTPORT="$(echo "$POOL" | sed -E 's#^[a-z+]+://##')"
+
+miner_cmd() {
+  case "$1" in
+    trm)
+      echo /opt/trm/teamredminer -a "$ALGO" -o "$POOL" -u "$USER_ARG" -p x \
+        --hardware=gpu --watchdog_disabled --disable_colors --log_interval=30 \
+        ${TRM_EXTRA_ARGS:-}
+      ;;
+    srb)
+      echo /opt/srb/SRBMiner-MULTI --algorithm "$ALGO" --pool "$POOL_HOSTPORT" \
+        --wallet "$USER_ARG" --password x --disable-cpu \
+        ${SRB_EXTRA_ARGS:-}
+      ;;
+    wildrig)
+      echo /opt/wildrig/wildrig-multi --algo "$ALGO" --url "$POOL" --user "$USER_ARG" \
+        --pass x --opencl-platforms amd --no-adl --no-igcl --no-sysfs \
+        --progpow-kernel "${PROGPOW_KERNEL:-1}" ${WILDRIG_EXTRA_ARGS:-}
+      ;;
+    *)
+      echo "echo unknown miner '$1'; false"
+      ;;
+  esac
+}
+
+# Accepted-share detector. Each miner words it differently; WildRig's stats
+# table also prints "Accepted: -" which must NOT count.
+has_accepted() {
+  grep -iE 'accepted' "$LOG" 2>/dev/null | grep -vE 'Accepted: ' | grep -qiE 'accept'
+}
 
 run_miner() {
-  kernel="$1"
-  echo "=== Starting WildRig: algo=$ALGO pool=$POOL worker=$WORKER_NAME progpow-kernel=$kernel ==="
+  name="$1"
+  : > "$LOG"
+  echo "=== [$name] starting: $(miner_cmd "$name") ==="
+  cd "/opt/$name" 2>/dev/null || cd /opt/wildrig
+  sh -c "$(miner_cmd "$name")" 2>&1 | tee "$LOG" &
+  pipeline_pid=$!
   start=$(date +%s)
-  /opt/wildrig/wildrig-multi \
-    --algo "$ALGO" \
-    --url "$POOL" \
-    --user "$WALLET.$WORKER_NAME" \
-    --pass x \
-    --opencl-platforms amd \
-    --no-adl --no-igcl --no-sysfs \
-    --progpow-kernel "$kernel" \
-    ${WILDRIG_EXTRA_ARGS:-}
-  rc=$?
-  elapsed=$(( $(date +%s) - start ))
-  echo "=== WildRig exited rc=$rc after ${elapsed}s (kernel=$kernel) ==="
-  [ "$elapsed" -ge "$MIN_RUN_SECONDS" ]
+  confirmed=0
+  while :; do
+    sleep 10
+    if ! kill -0 "$pipeline_pid" 2>/dev/null; then
+      echo "=== [$name] exited ==="
+      return 1
+    fi
+    if [ "$confirmed" -eq 0 ] && has_accepted; then
+      confirmed=1
+      echo "=== [$name] ACCEPTED SHARE - this miner works on this node ==="
+      # Stop tailing the log into a growing file; from here the miner just runs.
+      wait "$pipeline_pid"
+      echo "=== [$name] exited after running successfully ==="
+      return 0
+    fi
+    elapsed=$(( $(date +%s) - start ))
+    if [ "$confirmed" -eq 0 ] && [ "$elapsed" -ge "$NO_SHARE_TIMEOUT" ]; then
+      echo "=== [$name] no accepted share after ${elapsed}s - killing and trying next miner ==="
+      pkill -f "/opt/$name/" 2>/dev/null
+      sleep 3
+      pkill -9 -f "/opt/$name/" 2>/dev/null
+      return 1
+    fi
+  done
 }
 
 while :; do
-  for k in $PROGPOW_KERNELS; do
-    if run_miner "$k"; then
-      # Ran for a while then died (pool drop, node hiccup): keep the same
-      # kernel, restart immediately.
-      PROGPOW_KERNELS="$k"
+  for m in $MINERS; do
+    if run_miner "$m"; then
+      # It worked then died (pool drop / node hiccup): stick with this miner.
+      MINERS="$m"
       break
     fi
-    echo "=== kernel $k failed fast, trying next ==="
   done
   echo "=== restarting in 15s ==="
   sleep 15

@@ -38,6 +38,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.repo.outputs.name }}:latest
+            ${{ steps.repo.outputs.name }}:v${{ github.run_number }}
             ${{ steps.repo.outputs.name }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
