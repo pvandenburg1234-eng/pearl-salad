@@ -38,7 +38,7 @@
 #      WALLET = <your payout address>            (REQUIRED)
 #      POOL   = <pool host:port>                 (see options below)
 #      ALGO   = kawpow (Quai)
-#      MINERS = "trm srb wildrig"  order to try (optional)
+#      MINERS = optional; auto = "trm srb wildrig" (RDNA2/3) or "srb wildrig" (RDNA4)
 #      WORKER = optional; Salad's machine id is used automatically if unset
 #
 #  ---- POOL options ---------------------------------------------------------
@@ -110,8 +110,10 @@ ENV ALGO=kawpow \
     POOL=stratum+tcp://ca.quai.herominers.com:1185 \
     WALLET=REPLACE_WITH_YOUR_WALLET \
     WORKER=salad01 \
-    MINERS="trm srb wildrig" \
     NO_SHARE_TIMEOUT=300
+# MINERS is intentionally NOT defaulted here: the entrypoint picks the order
+# from the GPU arch (trm first on RDNA2/3, srb first on RDNA4). Set it in the
+# Salad env vars only to pin a specific miner.
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

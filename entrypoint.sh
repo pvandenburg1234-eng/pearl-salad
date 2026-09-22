@@ -20,17 +20,29 @@ WORKER_NAME="${SALAD_MACHINE_ID:-${WORKER:-salad01}}"
 WORKER_NAME="$(echo "$WORKER_NAME" | tr -cd 'A-Za-z0-9_-' | cut -c1-24)"
 USER_ARG="$WALLET.$WORKER_NAME"
 
-MINERS="${MINERS:-trm srb wildrig}"
 NO_SHARE_TIMEOUT="${NO_SHARE_TIMEOUT:-300}"
 LOG=/tmp/miner.log
 
 echo "=== GPU readiness check (rocminfo) ==="
 echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-<unset>}"
+GFX=""
 if command -v rocminfo >/dev/null 2>&1; then
-  rocminfo 2>&1 | grep -E 'Name:|Marketing Name|gfx|HSA_STATUS' | head -20
+  ROCMINFO="$(rocminfo 2>&1)"
+  echo "$ROCMINFO" | grep -E 'Name:|Marketing Name|gfx|HSA_STATUS' | head -20
+  GFX="$(echo "$ROCMINFO" | grep -oE 'gfx[0-9a-f]+' | head -1)"
 else
   echo "rocminfo not found in image (unexpected)"
 fi
+
+# Miner order. TeamRedMiner (last release 2024) has no RDNA4 support, so on
+# gfx12xx (RX 9070 / 9060) go straight to SRBMiner.
+if [ -z "${MINERS:-}" ]; then
+  case "$GFX" in
+    gfx12*) MINERS="srb wildrig" ;;
+    *)      MINERS="trm srb wildrig" ;;
+  esac
+fi
+echo "=== GPU arch: ${GFX:-unknown}  miner order: $MINERS ==="
 
 echo "=== OpenCL platforms (clinfo) ==="
 clinfo -l 2>&1 | head -20 || true

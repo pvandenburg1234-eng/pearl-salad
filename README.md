@@ -47,7 +47,7 @@ Portal → **Container Groups → Deploy**:
 |---|---|
 | Image | `ghcr.io/<you>/wildrig-salad:latest` |
 | Replicas | `1` for testing |
-| GPU | an **AMD** class (e.g. RX 7800 XT / 7900 XTX). Don't put NVIDIA classes in the same group. |
+| GPU | an **AMD** class. Verified: RX 7800 XT (37 MH/s), 7900 XT (45 MH/s), 7900 XTX (54 MH/s). RX 9070 XT / 9060 XT should work via SRBMiner (unverified). Don't put NVIDIA classes in the same group. |
 | vCPU / RAM | 2 vCPU / 4 GB |
 | Storage | smallest |
 | Priority | Batch |
@@ -62,7 +62,7 @@ Environment variables:
 | `POOL` | `stratum+tcp://ca.quai.herominers.com:1185` (default; `us.` / `de.` regions also exist) |
 | `ALGO` | `kawpow` (default) |
 | `WORKER` | optional label; Salad's machine id is used if unset |
-| `MINERS` | order to try, default `trm srb wildrig`. Pin one with e.g. `MINERS=trm` |
+| `MINERS` | order to try. Auto-detected from GPU arch: `trm srb wildrig` on RDNA2/3 (RX 6000/7000), `srb wildrig` on RDNA4 (RX 9070/9060 — TeamRedMiner predates RDNA4). Pin one with e.g. `MINERS=trm` |
 | `NO_SHARE_TIMEOUT` | seconds a miner gets to produce an accepted share before the next is tried (default `300`) |
 | `TRM_EXTRA_ARGS` / `SRB_EXTRA_ARGS` / `WILDRIG_EXTRA_ARGS` | optional extra flags per miner |
 
