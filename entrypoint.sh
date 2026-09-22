@@ -24,13 +24,44 @@ fi
 echo "=== OpenCL platforms (clinfo) ==="
 clinfo -l 2>&1 | head -20 || true
 
-echo "=== Starting WildRig: algo=$ALGO pool=$POOL worker=$WORKER_NAME ==="
-exec /opt/wildrig/wildrig-multi \
-  --algo "$ALGO" \
-  --url "$POOL" \
-  --user "$WALLET.$WORKER_NAME" \
-  --pass x \
-  --opencl-platforms amd \
-  --no-adl --no-igcl --no-sysfs \
-  --print-full \
-  ${WILDRIG_EXTRA_ARGS:-}
+# ROCm's OpenCL compiler doesn't build every WildRig ProgPoW kernel variant.
+# WildRig exits on CL_BUILD_PROGRAM_FAILURE, so try each variant in turn and
+# only treat a run as "working" if it survives longer than MIN_RUN_SECONDS.
+# Override with PROGPOW_KERNELS="1" to pin one, or WILDRIG_EXTRA_ARGS for
+# any other flags.
+PROGPOW_KERNELS="${PROGPOW_KERNELS:-1 2 0}"
+MIN_RUN_SECONDS="${MIN_RUN_SECONDS:-90}"
+
+run_miner() {
+  kernel="$1"
+  echo "=== Starting WildRig: algo=$ALGO pool=$POOL worker=$WORKER_NAME progpow-kernel=$kernel ==="
+  start=$(date +%s)
+  /opt/wildrig/wildrig-multi \
+    --algo "$ALGO" \
+    --url "$POOL" \
+    --user "$WALLET.$WORKER_NAME" \
+    --pass x \
+    --opencl-platforms amd \
+    --no-adl --no-igcl --no-sysfs \
+    --progpow-kernel "$kernel" \
+    --print-full \
+    ${WILDRIG_EXTRA_ARGS:-}
+  rc=$?
+  elapsed=$(( $(date +%s) - start ))
+  echo "=== WildRig exited rc=$rc after ${elapsed}s (kernel=$kernel) ==="
+  [ "$elapsed" -ge "$MIN_RUN_SECONDS" ]
+}
+
+while :; do
+  for k in $PROGPOW_KERNELS; do
+    if run_miner "$k"; then
+      # Ran for a while then died (pool drop, node hiccup): keep the same
+      # kernel, restart immediately.
+      PROGPOW_KERNELS="$k"
+      break
+    fi
+    echo "=== kernel $k failed fast, trying next ==="
+  done
+  echo "=== restarting in 15s ==="
+  sleep 15
+done

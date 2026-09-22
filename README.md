@@ -54,6 +54,7 @@ Environment variables:
 | `ALGO` | `kawpow` (default) |
 | `WORKER` | optional label; Salad's machine id is used if unset |
 | `WILDRIG_EXTRA_ARGS` | optional extra WildRig flags |
+| `PROGPOW_KERNELS` | kernel variants to try, default `1 2 0` (ROCm's OpenCL compiler can't build every variant; the entrypoint auto-falls-back) |
 
 ## 4. Verify
 
@@ -71,6 +72,7 @@ hashrate and estimated earnings; compare that to what Salad bills per hour.
 | Symptom | Cause / fix |
 |---|---|
 | `HSA_STATUS_ERROR_OUT_OF_RESOURCES` in rocminfo | Image ROCm < 7.1 or something overwrote `LD_LIBRARY_PATH`. Don't set those in Dockerfile/entrypoint. |
+| `CL_BUILD_PROGRAM_FAILURE when calling clBuildProgram` | ROCm's OpenCL compiler rejected that ProgPoW kernel variant; the entrypoint tries `--progpow-kernel 1`, `2`, `0` in turn. Pin the one that works with `PROGPOW_KERNELS=1`. |
 | `no OpenCL devices found` but rocminfo works | OpenCL ICD missing — check `/etc/OpenCL/vendors/amdocl64.icd` exists and points to a real `libamdocl64.so`. |
 | Instance keeps restarting | Batch priority nodes get reallocated; that's normal. Check for `ERROR: set the WALLET` in logs. |
 | Works locally, fails on Salad | Salad's AMD path is ROCm-on-WSL, not native ROCm; only test on Salad. |
