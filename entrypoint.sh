@@ -44,7 +44,6 @@ run_miner() {
     --opencl-platforms amd \
     --no-adl --no-igcl --no-sysfs \
     --progpow-kernel "$kernel" \
-    --print-full \
     ${WILDRIG_EXTRA_ARGS:-}
   rc=$?
   elapsed=$(( $(date +%s) - start ))

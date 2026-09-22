@@ -60,7 +60,9 @@ FROM rocm/dev-ubuntu-24.04:7.2
 ENV DEBIAN_FRONTEND=noninteractive
 
 # OpenCL runtime + ICD loader so WildRig can see the AMD platform.
-# Package name differs across ROCm releases, so try both.
+# Package name differs across ROCm releases, so try both. The ROCm package can
+# register the AMD platform twice (two .icd files); keep exactly one so the
+# GPU isn't enumerated twice.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates wget ocl-icd-libopencl1 clinfo \
     && (apt-get install -y --no-install-recommends rocm-opencl-runtime \
@@ -68,7 +70,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /etc/OpenCL/vendors \
     && (ls /etc/OpenCL/vendors/amdocl64.icd >/dev/null 2>&1 \
         || echo "/opt/rocm/lib/libamdocl64.so" > /etc/OpenCL/vendors/amdocl64.icd) \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "--- ICD files before dedupe:" && ls -la /etc/OpenCL/vendors && cat /etc/OpenCL/vendors/* \
+    && for f in /etc/OpenCL/vendors/*; do [ "$f" = /etc/OpenCL/vendors/amdocl64.icd ] || rm -f "$f"; done \
+    && echo "--- ICD files after dedupe:" && ls -la /etc/OpenCL/vendors && cat /etc/OpenCL/vendors/*
 
 ARG WILDRIG_VERSION=0.51.2
 WORKDIR /opt/wildrig
