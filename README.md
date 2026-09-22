@@ -5,7 +5,8 @@ Quai over KawPow. It bundles three miners and auto-selects the first one that
 produces an accepted share on the node it lands on:
 
 1. [TeamRedMiner](https://github.com/todxx/teamredminer) — AMD-only, precompiled
-   kernels, KawPow supported on RDNA3 under ROCm drivers (2% devfee)
+   kernels, KawPow supported on RDNA3 under ROCm drivers (2% devfee) —
+   **verified working on SaladCloud RX 7900 XT, 2026-09-22 (image tag `v6`)**
 2. [SRBMiner-MULTI](https://github.com/doktor83/SRBMiner-Multi) (0.85% devfee)
 3. [WildRig-Multi](https://github.com/andru-kun/wildrig-multi) — last resort;
    under ROCm's OpenCL its ProgPoW kernel either fails to build or runs with
