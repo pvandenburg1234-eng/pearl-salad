@@ -74,7 +74,7 @@ ARG WILDRIG_VERSION=0.51.2
 WORKDIR /opt/wildrig
 RUN wget -qO /tmp/w.tgz \
       https://github.com/andru-kun/wildrig-multi/releases/download/${WILDRIG_VERSION}/wildrig-multi-linux-${WILDRIG_VERSION}.tar.gz \
- && tar xzf /tmp/w.tgz -C /opt/wildrig --strip-components=1 \
+ && tar xzf /tmp/w.tgz -C /opt/wildrig \
  && rm /tmp/w.tgz \
  && chmod +x /opt/wildrig/wildrig-multi
 
