@@ -47,7 +47,7 @@ Portal → **Container Groups → Deploy**:
 |---|---|
 | Image | `ghcr.io/<you>/wildrig-salad:latest` |
 | Replicas | `1` for testing |
-| GPU | an **AMD** class. Verified: RX 7800 XT (37 MH/s), 7900 XT (45 MH/s), 7900 XTX (54 MH/s). RX 9070 XT / 9060 XT should work via SRBMiner (unverified). Don't put NVIDIA classes in the same group. |
+| GPU | an **AMD** class. Verified: RX 7800 XT (37 MH/s), 7900 XT (45 MH/s), 7900 XTX (54 MH/s). RX 9060 XT (18 MH/s, via SRBMiner). RX 9070 XT should work the same way (unverified). Don't put NVIDIA classes in the same group. |
 | vCPU / RAM | 2 vCPU / 4 GB |
 | Storage | smallest |
 | Priority | Batch |
