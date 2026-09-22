@@ -59,7 +59,7 @@ Environment variables:
 | Name | Value |
 |---|---|
 | `WALLET` | your Cyprus-1 address (`0x00…`) — **required** |
-| `POOL` | `stratum+tcp://ca.quai.herominers.com:1185` (default; `us.` / `de.` regions also exist) |
+| `POOL` | `stratum+tcp://ca.quai.herominers.com:1185` (default). For HeroMiners the **region is auto-selected** at startup by TCP latency from the node (`ca us de fi fr hk sg kr au br tr ru`); the log shows the probe results. Set `POOL_AUTO=0` to use `POOL` exactly as given. |
 | `ALGO` | `kawpow` (default) |
 | `WORKER` | optional label; Salad's machine id is used if unset |
 | `MINERS` | order to try. Auto-detected from GPU arch: `trm srb wildrig` on RDNA2/3 (RX 6000/7000), `srb wildrig` on RDNA4 (RX 9070/9060 — TeamRedMiner predates RDNA4). Pin one with e.g. `MINERS=trm` |
@@ -86,6 +86,7 @@ hashrate and estimated earnings; compare that to what Salad bills per hour.
 | `no accepted share after 300s - killing and trying next miner` | That miner can't hash on this node's driver stack; the entrypoint moves on. Once you see `ACCEPTED SHARE - this miner works`, pin it with `MINERS=<name>` to skip the probing on future reallocations. |
 | WildRig: `CL_BUILD_PROGRAM_FAILURE` / `CL_INVALID_ARG_INDEX ... kawpow_phase3` | Expected under ROCm OpenCL — WildRig targets AMD's proprietary driver. That's why it's last in the list. |
 | `no OpenCL devices found` but rocminfo works | OpenCL ICD missing — check `/etc/OpenCL/vendors/amdocl64.icd` exists and points to a real `libamdocl64.so`. |
+| `share rejected ... Job expired`, pool latency > ~150 ms | Node is far from the pool region. With `POOL_AUTO=1` (default) the entrypoint picks the nearest HeroMiners region; check the `Probing HeroMiners regions` lines. |
 | Instance keeps restarting | Batch priority nodes get reallocated; that's normal. Check for `ERROR: set the WALLET` in logs. |
 | Works locally, fails on Salad | Salad's AMD path is ROCm-on-WSL, not native ROCm; only test on Salad. |
 

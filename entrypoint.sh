@@ -47,6 +47,36 @@ echo "=== GPU arch: ${GFX:-unknown}  miner order: $MINERS ==="
 echo "=== OpenCL platforms (clinfo) ==="
 clinfo -l 2>&1 | head -20 || true
 
+# Pool region auto-select. Salad nodes are spread worldwide and Quai jobs go
+# stale fast, so a far-away pool costs 10%+ in "Job expired" rejects. If the
+# pool is HeroMiners, time a TCP connect to each region and use the fastest.
+# Disable with POOL_AUTO=0 or by setting a non-HeroMiners POOL.
+if [ "${POOL_AUTO:-1}" = "1" ] && echo "$POOL" | grep -q 'quai\.herominers\.com'; then
+  scheme="$(echo "$POOL" | sed -nE 's#^([a-z+]+://).*#\1#p')"
+  port="$(echo "$POOL" | sed -nE 's#.*:([0-9]+)$#\1#p')"
+  port="${port:-1185}"
+  POOL_REGIONS="${POOL_REGIONS:-ca us de fi fr hk sg kr au br tr ru}"
+  echo "=== Probing HeroMiners regions on port $port ==="
+  best=""; best_ms=999999
+  for r in $POOL_REGIONS; do
+    h="$r.quai.herominers.com"
+    t="$(curl -s -o /dev/null --max-time 3 -w '%{time_connect}' "telnet://$h:$port" 2>/dev/null </dev/null)"
+    ms="$(echo "${t:-0}" | awk '{ printf "%d", $1 * 1000 }')"
+    if [ "$ms" -gt 0 ]; then
+      echo "  $r: ${ms} ms"
+      if [ "$ms" -lt "$best_ms" ]; then best="$r"; best_ms="$ms"; fi
+    else
+      echo "  $r: unreachable"
+    fi
+  done
+  if [ -n "$best" ]; then
+    POOL="${scheme:-stratum+tcp://}$best.quai.herominers.com:$port"
+    echo "=== Using nearest region: $best (${best_ms} ms) -> $POOL ==="
+  else
+    echo "=== No region reachable by probe; keeping $POOL ==="
+  fi
+fi
+
 # Print the miner command for a given name. Pool URL for SRBMiner must not
 # carry the stratum+tcp:// scheme.
 POOL_HOSTPORT="$(echo "$POOL" | sed -E 's#^[a-z+]+://##')"

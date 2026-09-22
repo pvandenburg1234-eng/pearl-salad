@@ -42,8 +42,9 @@
 #      WORKER = optional; Salad's machine id is used automatically if unset
 #
 #  ---- POOL options ---------------------------------------------------------
-#    Quai (KawPow) - HeroMiners:
-#      POOL   = stratum+tcp://ca.quai.herominers.com:1185   (us./de. also exist)
+#    Quai (KawPow) - HeroMiners (region auto-selected by latency at startup;
+#    regions: ca us de fi fr hk sg kr au br tr ru; set POOL_AUTO=0 to pin):
+#      POOL   = stratum+tcp://ca.quai.herominers.com:1185
 #      WALLET = your Pelagus Cyprus-1 zone address (0x00... )
 #    Quai (KawPow) - 2Miners (alternative):
 #      POOL   = stratum+tcp://quai-kawpow.2miners.com:5555  (check 2miners.com for region ports)
@@ -65,7 +66,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # register the AMD platform twice (two .icd files); keep exactly one so the
 # GPU isn't enumerated twice.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates wget ocl-icd-libopencl1 clinfo procps \
+      ca-certificates wget curl ocl-icd-libopencl1 clinfo procps \
     && (apt-get install -y --no-install-recommends rocm-opencl-runtime \
         || apt-get install -y --no-install-recommends rocm-opencl) \
     && mkdir -p /etc/OpenCL/vendors \
