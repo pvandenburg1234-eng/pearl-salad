@@ -119,7 +119,7 @@ RUN wget -qO /tmp/srb.tgz \
  && ls -la /opt/srb
 
 # --- 3. BzMiner --------------------------------------------------------------
-ARG BZ_VERSION=100.31
+ARG BZ_VERSION=100.36
 RUN wget -qO /tmp/bz.tgz \
       https://github.com/bzminer/bzminer/releases/download/v${BZ_VERSION}/bzminer_v${BZ_VERSION}_linux.tar.gz \
  && mkdir -p /tmp/bz && tar xzf /tmp/bz.tgz -C /tmp/bz \
@@ -146,7 +146,7 @@ ENV POOL=stratum+ssl://prl.kryptex.network:8048 \
     WALLET=REPLACE_WITH_YOUR_WALLET \
     WORKER=salad01 \
     MINERS="krig srb bz wildrig" \
-    NO_SHARE_TIMEOUT=300
+    NO_SHARE_TIMEOUT=600
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
