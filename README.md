@@ -75,7 +75,7 @@ Environment variables:
 | Name | Value |
 |---|---|
 | `WALLET` | your Pearl address (`prl1p…`) — **required** |
-| `POOL` | `stratum+tcp://ca.pearl.herominers.com:1200` (default; HeroMiners, 0% fee, PPS+, hourly payouts from 1 PRL). The **region is auto-selected** at startup by TCP latency from the node (`ca us us2 us3 de es fi fr ru tr hk sg kr au br`); the log shows the probe results. Set `POOL_AUTO=0` to use `POOL` exactly as given. Alternative: Kryptex, `stratum+tcp://prl.kryptex.network:7048` (1% fee; regions `prl prl-us prl-eu prl-br prl-sg prl-hk prl-ru prl-ae` are auto-probed the same way). Kryptex is the only pool krig-miner will talk to, so use it if you want krig's 0% devfee: 1% pool fee + 0% devfee beats HeroMiners' 0% + SRBMiner's 2%. |
+| `POOL` | `stratum+tcp://prl.kryptex.network:7048` (default; Kryptex, 1% fee, dashboard at `pool.kryptex.com/prl`). Kryptex is the only pool krig-miner will talk to, and 1% pool fee + krig's 0% devfee beats any 0% pool + SRBMiner's 2% devfee. The **region is auto-selected** at startup by TCP latency from the node (`prl prl-us prl-eu prl-br prl-sg prl-hk prl-ru prl-ae`); the log shows the probe results. Set `POOL_AUTO=0` to use `POOL` exactly as given. Alternative: HeroMiners, `stratum+tcp://ca.pearl.herominers.com:1200` (0% fee, PPS+; regions `ca us us2 us3 de es fi fr ru tr hk sg kr au br` are auto-probed the same way; krig is skipped there and SRBMiner takes over). |
 | `WORKER` | optional label; Salad's machine id is used if unset |
 | `MINERS` | order to try, default `krig srb bz wildrig`. Pin one with e.g. `MINERS=srb` |
 | `NO_SHARE_TIMEOUT` | seconds a miner gets to produce an accepted share before the next is tried (default `300`) |
@@ -91,12 +91,12 @@ Open the container's logs in the Salad portal. You should see:
 
 1. `rocminfo` listing an agent with a `gfx…` name (GPU visible).
 2. `clinfo -l` showing an AMD platform.
-3. `Probing HeroMiners Pearl regions` followed by `Using nearest region`.
+3. `Probing Kryptex Pearl regions` followed by `Using nearest region`.
 4. `=== [krig] starting ...` then, within a few minutes,
    `=== [krig] ACCEPTED SHARE - this miner works on this node ===` (or the
    same for `srb`, `bz` or `wildrig` if earlier miners were skipped).
 
-Then check `https://pearl.herominers.com/` with your wallet address to see
+Then check `https://pool.kryptex.com/prl` with your wallet address to see
 hashrate and estimated earnings; compare that to what Salad bills per hour.
 
 ### Troubleshooting
@@ -108,7 +108,7 @@ hashrate and estimated earnings; compare that to what Salad bills per hour.
 | krig: HIP runtime / `hipErrorNoDevice` | Try `KRIG_EXTRA_ARGS=--rocm-runtime 7` (the image ships ROCm 7.2; krig tries HIP 6 first by default). If that fails, `MINERS=srb bz wildrig`. |
 | WildRig: `CL_BUILD_PROGRAM_FAILURE` | Expected under ROCm OpenCL — WildRig targets AMD's proprietary driver. That's why it's last in the list. |
 | `no OpenCL devices found` but rocminfo works | OpenCL ICD missing — check `/etc/OpenCL/vendors/amdocl64.icd` exists and points to a real `libamdocl64.so`. |
-| Shares rejected as stale, pool latency > ~150 ms | Node is far from the pool region. With `POOL_AUTO=1` (default) the entrypoint picks the nearest HeroMiners region; check the `Probing HeroMiners Pearl regions` lines. |
+| Shares rejected as stale, pool latency > ~150 ms | Node is far from the pool region. With `POOL_AUTO=1` (default) the entrypoint picks the nearest region of whichever pool is in use; check the `Probing ... regions` lines. |
 | `WARNING: Pearl mainnet addresses start with 'prl1p'` | Wrong wallet. Wrapped Pearl (WPRL, an Ethereum `0x…` address) is not a mining payout address. |
 | Instance keeps restarting | Batch priority nodes get reallocated; that's normal. Check for `ERROR: set the WALLET` in logs. |
 | Works locally, fails on Salad | Salad's AMD path is ROCm-on-WSL, not native ROCm; only test on Salad. |
