@@ -1,11 +1,11 @@
 #!/bin/sh
-# Entrypoint for the Quai/KawPow SaladCloud AMD image.
+# Entrypoint for the Pearl (PRL, pearlhash) SaladCloud AMD image.
 # Do NOT export LD_LIBRARY_PATH or PYTHONPATH here - Salad injects them.
 #
 # Tries each miner in $MINERS in order. A miner "works" once it logs an
 # accepted share; if it exits, or produces no accepted share within
 # $NO_SHARE_TIMEOUT seconds, it is killed and the next miner is tried.
-# (WildRig under ROCm OpenCL runs forever without hashing - hence the
+# (WildRig under ROCm OpenCL can run forever without hashing - hence the
 # share-based check rather than an exit-code check.)
 
 set -u
@@ -14,12 +14,17 @@ if [ "${WALLET:-REPLACE_WITH_YOUR_WALLET}" = "REPLACE_WITH_YOUR_WALLET" ]; then
   echo "ERROR: set the WALLET environment variable in your SaladCloud container group." >&2
   exit 1
 fi
+case "$WALLET" in
+  prl1*) ;;
+  *) echo "WARNING: Pearl mainnet addresses start with 'prl1p'. WALLET='$WALLET' looks wrong - pools will reject it." >&2 ;;
+esac
 
 WORKER_NAME="${SALAD_MACHINE_ID:-${WORKER:-salad01}}"
 # Salad machine ids are long UUIDs; pools usually cap worker names, so trim.
 WORKER_NAME="$(echo "$WORKER_NAME" | tr -cd 'A-Za-z0-9_-' | cut -c1-24)"
 USER_ARG="$WALLET.$WORKER_NAME"
 
+MINERS="${MINERS:-krig srb bz wildrig}"
 NO_SHARE_TIMEOUT="${NO_SHARE_TIMEOUT:-300}"
 LOG=/tmp/miner.log
 
@@ -33,33 +38,24 @@ if command -v rocminfo >/dev/null 2>&1; then
 else
   echo "rocminfo not found in image (unexpected)"
 fi
-
-# Miner order. TeamRedMiner (last release 2024) has no RDNA4 support, so on
-# gfx12xx (RX 9070 / 9060) go straight to SRBMiner.
-if [ -z "${MINERS:-}" ]; then
-  case "$GFX" in
-    gfx12*) MINERS="srb wildrig" ;;
-    *)      MINERS="trm srb wildrig" ;;
-  esac
-fi
 echo "=== GPU arch: ${GFX:-unknown}  miner order: $MINERS ==="
 
 echo "=== OpenCL platforms (clinfo) ==="
 clinfo -l 2>&1 | head -20 || true
 
-# Pool region auto-select. Salad nodes are spread worldwide and Quai jobs go
-# stale fast, so a far-away pool costs 10%+ in "Job expired" rejects. If the
-# pool is HeroMiners, time a TCP connect to each region and use the fastest.
+# Pool region auto-select. Salad nodes are spread worldwide and Pearl shares
+# are heavy STARK proofs, so a far-away pool costs stale rejects. If the pool
+# is HeroMiners, time a TCP connect to each region and use the fastest.
 # Disable with POOL_AUTO=0 or by setting a non-HeroMiners POOL.
-if [ "${POOL_AUTO:-1}" = "1" ] && echo "$POOL" | grep -q 'quai\.herominers\.com'; then
+if [ "${POOL_AUTO:-1}" = "1" ] && echo "$POOL" | grep -qE 'pearl\.herominers\.com'; then
   scheme="$(echo "$POOL" | sed -nE 's#^([a-z+]+://).*#\1#p')"
   port="$(echo "$POOL" | sed -nE 's#.*:([0-9]+)$#\1#p')"
-  port="${port:-1185}"
-  POOL_REGIONS="${POOL_REGIONS:-ca us de fi fr hk sg kr au br tr ru}"
-  echo "=== Probing HeroMiners regions on port $port ==="
+  port="${port:-1200}"
+  POOL_REGIONS="${POOL_REGIONS:-ca us us2 us3 de es fi fr ru tr hk sg kr au br}"
+  echo "=== Probing HeroMiners Pearl regions on port $port ==="
   best=""; best_ms=999999
   for r in $POOL_REGIONS; do
-    h="$r.quai.herominers.com"
+    h="$r.pearl.herominers.com"
     t="$(curl -s -o /dev/null --max-time 3 -w '%{time_connect}' "telnet://$h:$port" 2>/dev/null </dev/null)"
     ms="$(echo "${t:-0}" | awk '{ printf "%d", $1 * 1000 }')"
     if [ "$ms" -gt 0 ]; then
@@ -70,33 +66,41 @@ if [ "${POOL_AUTO:-1}" = "1" ] && echo "$POOL" | grep -q 'quai\.herominers\.com'
     fi
   done
   if [ -n "$best" ]; then
-    POOL="${scheme:-stratum+tcp://}$best.quai.herominers.com:$port"
+    POOL="${scheme:-stratum+tcp://}$best.pearl.herominers.com:$port"
     echo "=== Using nearest region: $best (${best_ms} ms) -> $POOL ==="
   else
     echo "=== No region reachable by probe; keeping $POOL ==="
   fi
 fi
 
-# Print the miner command for a given name. Pool URL for SRBMiner must not
-# carry the stratum+tcp:// scheme.
+# Pool URL without the stratum+tcp:// scheme, for miners that want host:port.
 POOL_HOSTPORT="$(echo "$POOL" | sed -E 's#^[a-z+]+://##')"
 
+# Print the miner command for a given name. Every miner spells the algorithm
+# differently, so it is hardcoded per miner rather than taken from an env var:
+#   krig    --coin pearl        (aliases: prl, pearlhash)
+#   srb     --algorithm pearlhash
+#   bz      -a pearl
+#   wildrig --algo pearlhash
 miner_cmd() {
   case "$1" in
-    trm)
-      echo /opt/trm/teamredminer -a "$ALGO" -o "$POOL" -u "$USER_ARG" -p x \
-        --hardware=gpu --watchdog_disabled --disable_colors --log_interval=30 \
-        ${TRM_EXTRA_ARGS:-}
+    krig)
+      echo /opt/krig/krig-miner --coin pearl -o "$POOL_HOSTPORT" -u "$USER_ARG" -p x \
+        --no-tui --no-cuda ${KRIG_EXTRA_ARGS:-}
       ;;
     srb)
-      echo /opt/srb/SRBMiner-MULTI --algorithm "$ALGO" --pool "$POOL_HOSTPORT" \
+      echo /opt/srb/SRBMiner-MULTI --algorithm pearlhash --pool "$POOL_HOSTPORT" \
         --wallet "$USER_ARG" --password x --disable-cpu \
         ${SRB_EXTRA_ARGS:-}
       ;;
+    bz)
+      echo /opt/bz/bzminer -a pearl -p "$POOL" -w "$WALLET" --worker "$WORKER_NAME" \
+        --pass x --cpu 0 ${BZ_EXTRA_ARGS:-}
+      ;;
     wildrig)
-      echo /opt/wildrig/wildrig-multi --algo "$ALGO" --url "$POOL" --user "$USER_ARG" \
+      echo /opt/wildrig/wildrig-multi --algo pearlhash --url "$POOL" --user "$USER_ARG" \
         --pass x --opencl-platforms amd --no-adl --no-igcl --no-sysfs \
-        --progpow-kernel "${PROGPOW_KERNEL:-1}" ${WILDRIG_EXTRA_ARGS:-}
+        ${WILDRIG_EXTRA_ARGS:-}
       ;;
     *)
       echo "echo unknown miner '$1'; false"
@@ -112,9 +116,13 @@ has_accepted() {
 
 run_miner() {
   name="$1"
+  if [ ! -d "/opt/$name" ]; then
+    echo "=== [$name] not installed in this image - skipping ==="
+    return 1
+  fi
   : > "$LOG"
   echo "=== [$name] starting: $(miner_cmd "$name") ==="
-  cd "/opt/$name" 2>/dev/null || cd /opt/wildrig
+  cd "/opt/$name"
   sh -c "$(miner_cmd "$name")" 2>&1 | tee "$LOG" &
   pipeline_pid=$!
   start=$(date +%s)
