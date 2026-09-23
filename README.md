@@ -12,9 +12,10 @@ accepted share on the node it lands on:
 1. [krig-miner](https://github.com/kryptex/krig-miner) — Kryptex's miner,
    ROCm/HIP backend (RDNA2/3/4), 0% devfee. **Only works with Kryptex's own
    pool**; it refuses every other pool, so the entrypoint skips it unless
-   `POOL` is a `kryptex.network` address. Verified 2026-09-23 on a Salad
-   RX 7800 XT that it detects the GPU (gfx1101) and picks an RDNA3 kernel;
-   hashing itself is unverified.
+   `POOL` is a `kryptex.network` address. **Verified working on SaladCloud
+   2026-09-23: RX 9060 XT (gfx1200) at 51.9 TH/s** on Kryptex US over TLS,
+   well above the ~36 TH/s public benchmark for that card. Also detects an
+   RX 7800 XT (gfx1101) and picks an RDNA3 kernel.
 2. [SRBMiner-MULTI](https://github.com/doktor83/SRBMiner-Multi) — pearlhash on
    AMD via OpenCL (2% devfee). Its OpenCL path is known to work on Salad's ROCm
    stack from the Quai image (RX 9060 XT). **Unverified for pearlhash.**
@@ -35,14 +36,22 @@ launch. Test with one replica for 24 h before scaling.
 
 Expected pearlhash rates from public benchmarks (TH/s): RX 9070 XT ~71,
 RX 9070 ~59, RX 7900 XTX ~46, RX 7900 XT ~40, RX 7800 XT ~29, RX 9060 XT ~36,
-RX 6800 XT ~24. Compare against an RTX 3080 at ~105.
+RX 6800 XT ~24. Compare against an RTX 3080 at ~105. On Salad with krig-miner
+the RX 9060 XT measured 51.9 TH/s, so RDNA4 cards may do better than the
+benchmark sites suggest.
+
+| Card (Salad class) | Miner | Rate | Date |
+|---|---|---|---|
+| RX 9060 XT | krig-miner 1.5.2 | 51.9 TH/s | 2026-09-23 |
 
 ## 1. Get the image built (no Docker needed)
 
 1. Push this folder to a **public** GitHub repository (this one is
    `pearl-salad`).
 2. On GitHub open the **Actions** tab — the `build-and-push` workflow runs
-   automatically (~5–10 min) and pushes `ghcr.io/<you>/pearl-salad:latest`.
+   automatically (~5–10 min). A push to `main` updates
+   `ghcr.io/<you>/pearl-salad:latest`; a git tag `vX.Y.Z` publishes
+   `ghcr.io/<you>/pearl-salad:vX.Y.Z` (see **Releases** below).
 3. Make the package public: your GitHub profile → **Packages** →
    `pearl-salad` → **Package settings** → **Change visibility** → Public.
    SaladCloud can only pull public images (or you'd have to configure registry
@@ -61,7 +70,7 @@ Portal → **Container Groups → Deploy**:
 
 | Setting | Value |
 |---|---|
-| Image | `ghcr.io/<you>/pearl-salad:latest` |
+| Image | `ghcr.io/<you>/pearl-salad:v1.0.0` — pin a release tag, not `:latest`, so a Batch reallocation can't pull an untested build |
 | Replicas | `1` for testing |
 | GPU | an **AMD** class (RX 7000 / RX 9000 preferred; RX 6000 works at lower rates). Don't put NVIDIA classes in the same group. |
 | vCPU / RAM | 2 vCPU / 4 GB |
@@ -119,6 +128,27 @@ hashrate and estimated earnings; compare that to what Salad bills per hour.
   with the same shares. It needs an MDL address passed alongside the PRL one;
   the exact field format wasn't confirmed when this fork was made. Add it via
   the `*_EXTRA_ARGS` variables once you have it.
+
+## Releases
+
+Images are versioned with git tags. The workflow builds every push to `main`
+as `:latest` (for testing), and every tag `vX.Y.Z` as `:vX.Y.Z` and `:vX.Y`.
+Release tags never move, so Salad groups pinned to one keep running the exact
+build you tested. The entrypoint prints the version as its first log line.
+
+To cut a release after testing `:latest` on one replica:
+
+```bash
+git tag -a v1.1.0 -m "what changed" && git push origin v1.1.0
+```
+
+Bump the **patch** number for miner version bumps and doc fixes, **minor** for
+new behaviour (new miner, new pool, new env var), **major** if an env var
+changes meaning or a default pool switches.
+
+| Version | Date | Notes |
+|---|---|---|
+| v1.0.0 | 2026-09-23 | First verified release: krig-miner on Kryptex (TLS), RX 9060 XT at 51.9 TH/s |
 
 ## Files
 

@@ -72,6 +72,11 @@ FROM rocm/dev-ubuntu-24.04:7.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Set by the build workflow to the git tag (v1.2.3) or branch; the entrypoint
+# prints it so the Salad log says which image version a node is running.
+ARG IMAGE_VERSION=dev
+ENV IMAGE_VERSION=${IMAGE_VERSION}
+
 # OpenCL runtime + ICD loader so the OpenCL miners can see the AMD platform.
 # Package name differs across ROCm releases, so try both. The ROCm package can
 # register the AMD platform twice (two .icd files); keep exactly one so the
