@@ -10,8 +10,11 @@ It bundles four miners and auto-selects the first one that produces an
 accepted share on the node it lands on:
 
 1. [krig-miner](https://github.com/kryptex/krig-miner) — Kryptex's miner,
-   ROCm/HIP backend (RDNA2/3/4), 0% devfee. Tried first because HIP is the
-   stack Salad injects. **Unverified on Salad as of 2026-09-23.**
+   ROCm/HIP backend (RDNA2/3/4), 0% devfee. **Only works with Kryptex's own
+   pool**; it refuses every other pool, so the entrypoint skips it unless
+   `POOL` is a `kryptex.network` address. Verified 2026-09-23 on a Salad
+   RX 7800 XT that it detects the GPU (gfx1101) and picks an RDNA3 kernel;
+   hashing itself is unverified.
 2. [SRBMiner-MULTI](https://github.com/doktor83/SRBMiner-Multi) — pearlhash on
    AMD via OpenCL (2% devfee). Its OpenCL path is known to work on Salad's ROCm
    stack from the Quai image (RX 9060 XT). **Unverified for pearlhash.**
@@ -72,7 +75,7 @@ Environment variables:
 | Name | Value |
 |---|---|
 | `WALLET` | your Pearl address (`prl1p…`) — **required** |
-| `POOL` | `stratum+tcp://ca.pearl.herominers.com:1200` (default; HeroMiners, 0% fee, PPS+, hourly payouts from 1 PRL). The **region is auto-selected** at startup by TCP latency from the node (`ca us us2 us3 de es fi fr ru tr hk sg kr au br`); the log shows the probe results. Set `POOL_AUTO=0` to use `POOL` exactly as given. Alternative: Kryptex, `stratum+tcp://prl-us.kryptex.network:7048` (1% fee, regions `prl-eu prl-us prl-br prl-sg prl-hk prl-ru prl-ae`). |
+| `POOL` | `stratum+tcp://ca.pearl.herominers.com:1200` (default; HeroMiners, 0% fee, PPS+, hourly payouts from 1 PRL). The **region is auto-selected** at startup by TCP latency from the node (`ca us us2 us3 de es fi fr ru tr hk sg kr au br`); the log shows the probe results. Set `POOL_AUTO=0` to use `POOL` exactly as given. Alternative: Kryptex, `stratum+tcp://prl.kryptex.network:7048` (1% fee; regions `prl prl-us prl-eu prl-br prl-sg prl-hk prl-ru prl-ae` are auto-probed the same way). Kryptex is the only pool krig-miner will talk to, so use it if you want krig's 0% devfee: 1% pool fee + 0% devfee beats HeroMiners' 0% + SRBMiner's 2%. |
 | `WORKER` | optional label; Salad's machine id is used if unset |
 | `MINERS` | order to try, default `krig srb bz wildrig`. Pin one with e.g. `MINERS=srb` |
 | `NO_SHARE_TIMEOUT` | seconds a miner gets to produce an accepted share before the next is tried (default `300`) |
