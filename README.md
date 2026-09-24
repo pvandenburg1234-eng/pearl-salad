@@ -47,8 +47,20 @@ benchmark sites suggest.
 | RX 9060 XT | SRBMiner 3.6.9 | 42.3 TH/s, 1 share in 5 min (bench) | 2026-09-24 |
 | RX 9060 XT | BzMiner 100.36 | 34 falling to 29 TH/s, 0 shares in 5 min (bench) | 2026-09-24 |
 | RX 9060 XT | WildRig 0.51.2 | does not hash under ROCm OpenCL (`n/a TH/s`, `err`) | 2026-09-24 |
+| RX 9070 XT | krig-miner 1.5.2 | **fails**: `CUDA driver call failed (host A pinned alloc): 2` (out of memory) on every attempt at 4 GB container RAM | 2026-09-24 |
+| RX 9070 XT | SRBMiner 3.6.9 | 90.9 TH/s, 2 shares in 5 min (bench, Kryptex global 44 ms) | 2026-09-24 |
+| RX 9070 XT | BzMiner 100.36 | **126.0 TH/s**, 5 shares in 5 min (bench; pool-side 99–149) | 2026-09-24 |
 
-So on RDNA4 the default order is right: pin `MINERS=krig`.
+The winner depends on the card, so pin per GPU class:
+
+| Salad GPU class | `MINERS=` | Why |
+|---|---|---|
+| RX 9060 XT | `krig` | 49–52 TH/s at 0% devfee; BzMiner only 33 |
+| RX 9070 XT | `bz` | 126 TH/s (123 after 2% devfee) vs SRBMiner 91; krig can't allocate at 4 GB RAM |
+| RX 7800 XT / 7900 XT | run the bench | krig detects them (gfx1101/gfx1100); no numbers yet |
+
+krig's 9070 XT failure is a page-locked host-memory allocation, which under WSL
+comes out of the container's RAM limit. It may work with 8 GB; untested.
 
 ## 1. Get the image built (no Docker needed)
 
@@ -79,7 +91,7 @@ Portal → **Container Groups → Deploy**:
 | Image | `ghcr.io/<you>/pearl-salad:v1.0.0` — pin a release tag, not `:latest`, so a Batch reallocation can't pull an untested build |
 | Replicas | `1` for testing |
 | GPU | an **AMD** class (RX 7000 / RX 9000 preferred; RX 6000 works at lower rates). Don't put NVIDIA classes in the same group. |
-| vCPU / RAM | 2 vCPU / 4 GB |
+| vCPU / RAM | 2 vCPU / 4 GB. On an RX 9070 XT krig failed its pinned host-memory allocation at 4 GB; use 8 GB there if you want krig, or pin `MINERS=bz` (faster anyway, see the table above) |
 | Storage | smallest |
 | Priority | Batch |
 | Command | *(leave empty)* |
@@ -120,6 +132,7 @@ hashrate and estimated earnings; compare that to what Salad bills per hour.
 |---|---|
 | `HSA_STATUS_ERROR_OUT_OF_RESOURCES` in rocminfo | Image ROCm < 7.1 or something overwrote `LD_LIBRARY_PATH`. Don't set those in Dockerfile/entrypoint. |
 | `no accepted share after 600s - killing and trying next miner` | That miner can't hash on this node's driver stack; the entrypoint moves on. Once you see `ACCEPTED SHARE - this miner works`, pin it with `MINERS=<name>` to skip the probing on future reallocations. |
+| krig: `CUDA driver call failed (host A pinned alloc): 2`, retrying forever | krig couldn't page-lock host RAM for this card's buffers (seen on RX 9070 XT at 4 GB). Give the group 8 GB, or pin `MINERS=bz`. The entrypoint moves on after `NO_SHARE_TIMEOUT` either way. |
 | krig: HIP runtime / `hipErrorNoDevice` | Try `KRIG_EXTRA_ARGS=--rocm-runtime 7` (the image ships ROCm 7.2; krig tries HIP 6 first by default). If that fails, `MINERS=srb bz wildrig`. |
 | WildRig: `CL_BUILD_PROGRAM_FAILURE` | Expected under ROCm OpenCL — WildRig targets AMD's proprietary driver. That's why it's last in the list. |
 | `no OpenCL devices found` but rocminfo works | OpenCL ICD missing — check `/etc/OpenCL/vendors/amdocl64.icd` exists and points to a real `libamdocl64.so`. |
@@ -203,6 +216,7 @@ changes meaning or a default pool switches.
 
 | Version | Date | Notes |
 |---|---|---|
+| v1.2.1 | 2026-09-24 | Bench parser: BzMiner summary rows carry `pool hr | miner hr` once shares arrive; take the miner column, not the pool estimate. RX 9070 XT results: BzMiner 126 TH/s beats SRBMiner 91; krig fails its pinned-memory allocation at 4 GB. Per-class `MINERS=` table. |
 | v1.2.0 | 2026-09-24 | Benchmark image `pearl-salad-bench` (same Dockerfile, `bench` stage) and shared `common.sh`. Share detector now understands BzMiner's `shares=N` counter (BzMiner has no "accepted" wording, so v1.1.0 could never confirm it). Diagnostics when a miner is dropped. First bench on RX 9060 XT: krig 49.1 > SRBMiner 42.3 > BzMiner ~33 TH/s; WildRig doesn't hash. |
 | v1.1.0 | 2026-09-23 | Entrypoint hardening: bounded miner log (was unbounded; a few MB/day), SIGTERM handled as PID 1, a miner that exits after getting shares is restarted rather than replaced, share detector no longer matches "accepting"/"accepted connection", `NO_SHARE_TIMEOUT` default 600. BzMiner 100.36. |
 | v1.0.0 | 2026-09-23 | First verified release: krig-miner on Kryptex (TLS), RX 9060 XT at 51.9 TH/s |
