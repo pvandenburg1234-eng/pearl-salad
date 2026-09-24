@@ -203,6 +203,7 @@ changes meaning or a default pool switches.
 
 | Version | Date | Notes |
 |---|---|---|
+| v1.2.0 | 2026-09-24 | Benchmark image `pearl-salad-bench` (same Dockerfile, `bench` stage) and shared `common.sh`. Share detector now understands BzMiner's `shares=N` counter (BzMiner has no "accepted" wording, so v1.1.0 could never confirm it). Diagnostics when a miner is dropped. First bench on RX 9060 XT: krig 49.1 > SRBMiner 42.3 > BzMiner ~33 TH/s; WildRig doesn't hash. |
 | v1.1.0 | 2026-09-23 | Entrypoint hardening: bounded miner log (was unbounded; a few MB/day), SIGTERM handled as PID 1, a miner that exits after getting shares is restarted rather than replaced, share detector no longer matches "accepting"/"accepted connection", `NO_SHARE_TIMEOUT` default 600. BzMiner 100.36. |
 | v1.0.0 | 2026-09-23 | First verified release: krig-miner on Kryptex (TLS), RX 9060 XT at 51.9 TH/s |
 
