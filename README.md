@@ -47,7 +47,7 @@ benchmark sites suggest.
 | RX 9060 XT | SRBMiner 3.6.9 | 42.3 TH/s, 1 share in 5 min (bench) | 2026-09-24 |
 | RX 9060 XT | BzMiner 100.36 | 34 falling to 29 TH/s, 0 shares in 5 min (bench) | 2026-09-24 |
 | RX 9060 XT | WildRig 0.51.2 | does not hash under ROCm OpenCL (`n/a TH/s`, `err`) | 2026-09-24 |
-| RX 9070 XT | krig-miner 1.5.2 | **fails**: `CUDA driver call failed (host A pinned alloc): 2` (out of memory) on every attempt at 4 GB container RAM | 2026-09-24 |
+| RX 9070 XT | krig-miner 1.5.2 | **fails at 4 GB RAM**: `CUDA driver call failed (host A pinned alloc): 2` (out of memory) on every attempt. **Works at 8 GB: 87.4 TH/s**, 2 shares in 4 min. Still well behind BzMiner. | 2026-09-24 |
 | RX 9070 XT | SRBMiner 3.6.9 | 90.9 TH/s, 2 shares in 5 min (bench, Kryptex global 44 ms) | 2026-09-24 |
 | RX 9070 XT | BzMiner 100.36 | **126.0 TH/s**, 5 shares in 5 min (bench; pool-side 99–149) | 2026-09-24 |
 
@@ -56,11 +56,11 @@ The winner depends on the card, so pin per GPU class:
 | Salad GPU class | `MINERS=` | Why |
 |---|---|---|
 | RX 9060 XT | `krig` | 49–52 TH/s at 0% devfee; BzMiner only 33 |
-| RX 9070 XT | `bz` | 126 TH/s (123 after 2% devfee) vs SRBMiner 91; krig can't allocate at 4 GB RAM |
+| RX 9070 XT | `bz` | 126–127 TH/s (124 after 2% devfee) vs SRBMiner 91 and krig 87 (krig also needs 8 GB RAM on this card) |
 | RX 7800 XT / 7900 XT | run the bench | krig detects them (gfx1101/gfx1100); no numbers yet |
 
-krig's 9070 XT failure is a page-locked host-memory allocation, which under WSL
-comes out of the container's RAM limit. It may work with 8 GB; untested.
+krig's 9070 XT failure at 4 GB is a page-locked host-memory allocation, which
+under WSL comes out of the container's RAM limit; at 8 GB it runs, at 87 TH/s.
 
 ## 1. Get the image built (no Docker needed)
 
