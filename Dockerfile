@@ -68,7 +68,7 @@
 
 # Salad-recommended AMD base (ROCm 7.2, ubuntu 24.04). Includes rocminfo and
 # the HIP runtime (libamdhip64) that krig-miner needs.
-FROM rocm/dev-ubuntu-24.04:7.2
+FROM rocm/dev-ubuntu-24.04:7.2 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -148,6 +148,18 @@ ENV POOL=stratum+ssl://prl.kryptex.network:8048 \
     MINERS="krig srb bz wildrig" \
     NO_SHARE_TIMEOUT=600
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Tells common.sh which GPU readiness check and miner flags to use.
+ENV MINER_VENDOR=amd
+
+COPY common.sh entrypoint.sh bench.sh /
+RUN chmod +x /entrypoint.sh /bench.sh
+
+# --- bench image: same miners, different entrypoint ---------------------------
+# Published as ghcr.io/<you>/pearl-salad-bench. Runs every miner for a fixed
+# window and prints a hashrate table + MINERS= recommendation (see bench.sh).
+FROM base AS bench
+ENTRYPOINT ["/bench.sh"]
+
+# --- production image (last stage = default for a plain `docker build`) -------
+FROM base AS miner
 ENTRYPOINT ["/entrypoint.sh"]
