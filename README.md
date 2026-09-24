@@ -216,6 +216,7 @@ changes meaning or a default pool switches.
 
 | Version | Date | Notes |
 |---|---|---|
+| v1.2.2 | 2026-09-24 | BzMiner prints its device table every 5 min instead of every 30 s (Salad's group log view caps at 1000 rows and a 5-node BzMiner group filled it in 20 min); `--no-color`. Detection unchanged (uses the per-minute `shares=N` line). |
 | v1.2.1 | 2026-09-24 | Bench parser: BzMiner summary rows carry `pool hr | miner hr` once shares arrive; take the miner column, not the pool estimate. RX 9070 XT results: BzMiner 126 TH/s beats SRBMiner 91; krig fails its pinned-memory allocation at 4 GB. Per-class `MINERS=` table. |
 | v1.2.0 | 2026-09-24 | Benchmark image `pearl-salad-bench` (same Dockerfile, `bench` stage) and shared `common.sh`. Share detector now understands BzMiner's `shares=N` counter (BzMiner has no "accepted" wording, so v1.1.0 could never confirm it). Diagnostics when a miner is dropped. First bench on RX 9060 XT: krig 49.1 > SRBMiner 42.3 > BzMiner ~33 TH/s; WildRig doesn't hash. |
 | v1.1.0 | 2026-09-23 | Entrypoint hardening: bounded miner log (was unbounded; a few MB/day), SIGTERM handled as PID 1, a miner that exits after getting shares is restarted rather than replaced, share detector no longer matches "accepting"/"accepted connection", `NO_SHARE_TIMEOUT` default 600. BzMiner 100.36. |
