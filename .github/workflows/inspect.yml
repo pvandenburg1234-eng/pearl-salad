@@ -1,8 +1,9 @@
-# On-demand: what do the bundled miners actually link against? Used to decide
-# whether the image can drop the 2 GB CUDA runtime layer and build on the
-# rocm runtime-only base (which ROCm runtime packages the miners actually need).
+# On-demand: what do the bundled miners actually link against and load, and
+# which ROCm packages does the image carry? Used to decide whether the image
+# can drop the rocm/dev base (compilers, LLVM, headers) for runtime-only
+# packages on a plain Ubuntu base.
 #
-# Run from the Actions tab, or:  gh workflow run inspect.yml -f tag=v1.1.0
+# Run from the Actions tab, or:  gh workflow run inspect.yml -f tag=v1.2.2
 name: inspect-miner-deps
 
 on:
@@ -40,16 +41,23 @@ jobs:
               echo "-- DT_NEEDED (direct link-time dependencies):"
               readelf -d "$b" 2>/dev/null | grep NEEDED | sed "s/.*\[\(.*\)\]/     \1/" || echo "     (static or not ELF)"
               echo "-- ldd resolution (== not found == means it would fail to start):"
-              ldd "$b" 2>&1 | grep -iE "cuda|cublas|nvrtc|nvidia|hip|amd|rocm|opencl|not found" | sed "s/^/     /" || true
-              echo "-- CUDA/toolkit library names embedded in the binary (dlopen candidates):"
-              strings -n 8 "$b" | grep -oE "lib(cuda|OpenCL|amdhip64|hiprtc|rocblas|hsa-runtime64|amd_comgr|amdocl64|rocm_smi|drm|numa)[A-Za-z0-9_.-]*\.so[.0-9]*" | sort -u | sed "s/^/     /" || true
+              ldd "$b" 2>&1 | grep -iE "hip|hsa|amd|rocm|opencl|comgr|drm|numa|not found" | sed "s/^/     /" || true
+              echo "-- GPU library names embedded in the binary (dlopen candidates):"
+              strings -n 8 "$b" | grep -oE "lib(cuda|OpenCL|amdhip64|hiprtc|rocblas|hsa-runtime64|amd_comgr|amdocl64|rocm_smi|drm|drm_amdgpu|numa|rocprofiler)[A-Za-z0-9_.-]*\.so[.0-9]*" | sort -u | sed "s/^/     /" || true
             done
             echo "=================================================================="
-            echo "== shared libraries bundled next to the miners:"
-            find /opt -name "*.so*" | sed "s/^/     /"
-            echo "== ROCm libraries present in this image:"
-            ls /opt/rocm/lib 2>/dev/null | grep -E "^lib(amdhip64|hsa|amd_comgr|amdocl|hiprtc|rocm|drm|OpenCL)" | head -40 | sed "s/^/     /"
-            echo "== image size breakdown:"
-            du -sh /opt/rocm* /opt/krig /opt/srb /opt/bz /opt/wildrig /usr/lib/x86_64-linux-gnu 2>/dev/null; echo "== dpkg: largest ROCm packages"; dpkg-query -W -f="${Installed-Size}	${Package}
-" | sort -rn | head -25 | sed "s/^/     /"
+            echo "== ROCm runtime libraries present in /opt/rocm/lib:"
+            ls /opt/rocm/lib 2>/dev/null | grep -E "^lib(amdhip64|hsa-runtime|amd_comgr|amdocl64|hiprtc|rocm|drm|OpenCL|hsakmt)" | sed "s/^/     /"
+            echo "== OpenCL ICD files:"
+            for f in /etc/OpenCL/vendors/*; do echo "     $f -> $(cat $f)"; done
+            echo "== what the ROCm runtime libs themselves need (transitive, for a minimal install):"
+            for l in /opt/rocm/lib/libamdhip64.so /opt/rocm/lib/libamdocl64.so /opt/rocm/lib/libhsa-runtime64.so; do
+              echo "   $l:"; ldd "$l" 2>/dev/null | grep -vE "linux-vdso|ld-linux|libc\.so|libm\.so|libpthread|libdl|librt|libgcc|libstdc" | sed "s/^/     /"
+            done
+            echo "== size breakdown:"
+            du -sh /opt/rocm-7* /opt/rocm/lib /opt/rocm/llvm /opt/rocm/bin /opt/rocm/include /opt/krig /opt/srb /opt/bz /opt/wildrig 2>/dev/null | sed "s/^/     /"
+            echo "== largest installed packages (MB):"
+            dpkg-query -W -f="\${Installed-Size} \${Package}\n" | sort -rn | head -30 | awk "{ printf \"     %6.0f  %s\n\", \$1/1024, \$2 }"
+            echo "== dpkg ROCm/HIP packages installed:"
+            dpkg-query -W -f="\${Package} \${Version}\n" | grep -iE "rocm|hip|hsa|comgr|opencl|amdgpu|rocr" | sed "s/^/     /"
           '
