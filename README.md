@@ -43,6 +43,12 @@ benchmark sites suggest.
 | Card (Salad class) | Miner | Rate | Date |
 |---|---|---|---|
 | RX 9060 XT | krig-miner 1.5.2 | 51.9 TH/s | 2026-09-23 |
+| RX 9060 XT | krig-miner 1.5.2 | 49.1 TH/s, 5 shares in 5 min (bench, Kryptex SG) | 2026-09-24 |
+| RX 9060 XT | SRBMiner 3.6.9 | 42.3 TH/s, 1 share in 5 min (bench) | 2026-09-24 |
+| RX 9060 XT | BzMiner 100.36 | 34 falling to 29 TH/s, 0 shares in 5 min (bench) | 2026-09-24 |
+| RX 9060 XT | WildRig 0.51.2 | does not hash under ROCm OpenCL (`n/a TH/s`, `err`) | 2026-09-24 |
+
+So on RDNA4 the default order is right: pin `MINERS=krig`.
 
 ## 1. Get the image built (no Docker needed)
 
@@ -148,14 +154,15 @@ parses the hashrate the miner reports, applies that miner's devfee, and prints:
 
 ```
  MINER    STATUS   REPORTED TH/s  SAMPLES  SHARES  DEVFEE EFFECTIVE TH/s
- krig     ok              51.50        9       2      0%          51.50
- srb      ok              53.95       12       2      2%          52.87
- bz       failed              0        0       0      2%           0.00
- wildrig  ok              41.50       12       2      0%          41.50
- RECOMMENDED for this GPU class:  MINERS=srb
+ krig     ok              49.11        7       5      0%          49.11
+ srb      ok              41.92       14       1      2%          41.08
+ bz       ok              33.43        8       0      2%          32.76
+ wildrig  failed              0        0       0      0%           0.00
+ RECOMMENDED for this GPU class:  MINERS=krig
 ```
 
-Then it keeps mining with the winner until you stop the group, so the paid
+(real run, RX 9060 XT, 2026-09-24; the BzMiner row is what the fixed parser
+produces from that run's log). Then it keeps mining with the winner until you stop the group, so the paid
 node time isn't wasted. Set `MINERS=<winner>` on the production group for that
 GPU class. A Salad GPU class pins the card model, so one run per class is
 enough until a miner update changes the picture.
@@ -171,9 +178,11 @@ worker figure is what actually pays.
 | `MINERS` | all four | which miners to test, in order |
 | `BENCH_THEN` | `mine` | `mine` with the winner, `hold` (idle `BENCH_HOLD` s, then exit) or `exit` (Salad restarts the container, so stop the group once you've read the table) |
 
-The hashrate parser has only been verified against krig's output; the others
-follow their documented formats. If a miner shows `failed` with hashrate lines
-visible in the log, paste those lines and the parser needs a rule for them.
+The hashrate parser and share counter are verified against the real Salad
+output of all four miners (krig `Total:` lines, SRBMiner's colour-coded stats
+table, BzMiner's `34.07th` unit and `shares=N` counter, WildRig's `n/a TH/s`).
+If a future miner version changes its wording and shows `failed` with hashrate
+lines visible in the log, paste those lines and the parser needs a rule.
 
 ## Releases
 
