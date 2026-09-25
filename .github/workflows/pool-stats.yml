@@ -1,0 +1,30 @@
+name: pool-stats
+
+# Every 10 minutes: pull the wallet's Kryptex pool stats (balance, per-worker
+# pool-side hashrate, network hashrate) and push them into the Axiom dataset
+# next to the Salad container logs, for the PRL fleet dashboard.
+# Needs the repository secret AXIOM_INGEST_TOKEN (ingest-only, one dataset).
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pool-stats
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect and ingest
+        shell: pwsh
+        env:
+          AXIOM_INGEST_TOKEN: ${{ secrets.AXIOM_INGEST_TOKEN }}
+        run: ./tools/kryptex-collect.ps1
