@@ -21,7 +21,10 @@ $wallet  = if ($env:WALLET) { $env:WALLET } else { 'prl1p38te2npf3907snmsjy5x0xe
 $dataset = if ($env:AXIOM_DATASET) { $env:AXIOM_DATASET } else { 'salad-prl' }
 $axhost  = if ($env:AXIOM_HOST) { $env:AXIOM_HOST } else { 'us-east-1.aws.edge.axiom.co' }
 $tok     = $env:AXIOM_INGEST_TOKEN
-if (-not $tok) { throw 'AXIOM_INGEST_TOKEN is not set' }
+# Local fallback (Windows scheduled task on the user's PC): the ingest token
+# as the only line of ~/.axiom-ingest-token.
+if (-not $tok -and (Test-Path "$env:USERPROFILE\.axiom-ingest-token")) { $tok = (Get-Content "$env:USERPROFILE\.axiom-ingest-token" -Raw).Trim() }
+if (-not $tok) { throw 'AXIOM_INGEST_TOKEN is not set and ~/.axiom-ingest-token does not exist' }
 $now = (Get-Date).ToUniversalTime().ToString('o')
 $ua = 'Mozilla/5.0 (pearl-salad pool-stats collector)'
 
