@@ -34,11 +34,15 @@ $arr = $m.Groups[1].Value | ConvertFrom-Json
 function Resolve-Node($i, $d) {
   if ($d -gt 6) { return $null }
   $v = $arr[$i]
+  if ($null -eq $v) { return $null }
+  # Leaf values first. (In pwsh 7 a boxed number also answers true to
+  # "-is [pscustomobject]", which turned every leaf into an empty hashtable.)
+  if ($v -is [string] -or $v -is [bool] -or $v -is [double] -or $v -is [decimal] -or $v -is [int] -or $v -is [long]) { return $v }
   if ($v -is [System.Array]) {
     if ($v.Count -ge 2 -and $v[0] -is [string] -and $v[0] -match 'Reactive|Ref') { return Resolve-Node $v[1] ($d + 1) }
     return @($v | ForEach-Object { if ($_ -is [int] -or $_ -is [long]) { Resolve-Node $_ ($d + 1) } else { $_ } })
   }
-  if ($v -is [pscustomobject]) {
+  if ($v.GetType().Name -eq 'PSCustomObject') {
     $o = @{}
     foreach ($p in $v.PSObject.Properties) { $o[$p.Name] = if ($p.Value -is [int] -or $p.Value -is [long]) { Resolve-Node $p.Value ($d + 1) } else { $p.Value } }
     return $o
@@ -48,7 +52,7 @@ function Resolve-Node($i, $d) {
 $bal = $null
 for ($i = 0; $i -lt $arr.Count; $i++) {
   $v = $arr[$i]
-  if ($v -is [pscustomobject] -and $v.PSObject.Properties['paid'] -and $v.PSObject.Properties['unpaid']) { $bal = Resolve-Node $i 0; break }
+  if ($null -ne $v -and $v.GetType().Name -eq 'PSCustomObject' -and $v.PSObject.Properties['paid'] -and $v.PSObject.Properties['unpaid']) { $bal = Resolve-Node $i 0; break }
 }
 if (-not $bal) { throw 'balance object not found in the Kryptex payload' }
 # Hashtable vs PSCustomObject member access differs between Windows
