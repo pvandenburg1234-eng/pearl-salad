@@ -106,6 +106,8 @@ Environment variables:
 | `WORKER` | optional label; Salad's machine id is used if unset |
 | `MINERS` | order to try, default `krig srb bz wildrig`. Pin one with e.g. `MINERS=srb` |
 | `NO_SHARE_TIMEOUT` | seconds a miner gets to produce an accepted share before the next is tried (default `600` — Pearl shares are STARK proofs and the first one can be slow on weak cards) |
+| `POOL_CHECK` | `1`. After the region is picked, open a TLS connection to the pool and verify its certificate (curl, 8 s). No handshake at all, not even to the global `prl.kryptex.network:8048`, means the host cannot reach the pool, and the replica is handed back to Salad right away instead of paying `NO_SHARE_TIMEOUT` per miner for nothing (a 5070 Ti Laptop host did exactly that: TCP fine, every TLS connect failed, GPU idle). Handshake works but the certificate does not verify means something on the host's network intercepts TLS: SRBMiner and BzMiner mine through it, krig refuses such a pool as "not the official Kryptex PRL pool", so krig is skipped on that host and the next miner starts. `0` disables. |
+| `MAX_FAILED_PASSES` | `1`. Full passes through `MINERS` with no accepted share from any miner that ran, after which the replica is handed back to Salad (one pass is `NO_SHARE_TIMEOUT` x the miners that ran). Before this the loop retried forever on a node that could not mine. A pass where every miner was skipped is a configuration error and is retried, not reallocated. Off Salad it just keeps retrying. |
 | `KRIG_EXTRA_ARGS` / `SRB_EXTRA_ARGS` / `BZ_EXTRA_ARGS` / `WILDRIG_EXTRA_ARGS` | optional extra flags per miner (e.g. `KRIG_EXTRA_ARGS=--rocm-runtime 7`) |
 
 There is no `ALGO` variable: every miner spells pearlhash differently
@@ -118,7 +120,8 @@ Open the container's logs in the Salad portal. You should see:
 
 1. `rocminfo` listing an agent with a `gfx…` name (GPU visible).
 2. `clinfo -l` showing an AMD platform.
-3. `Probing Kryptex Pearl regions` followed by `Using nearest region`.
+3. `Probing Kryptex Pearl regions` followed by `Using nearest region` and
+   `pool check: TLS handshake and certificate OK`.
 4. `=== [krig] starting ...` then, within a few minutes,
    `=== [krig] ACCEPTED SHARE - this miner works on this node ===` (or the
    same for `srb`, `bz` or `wildrig` if earlier miners were skipped).
@@ -132,6 +135,9 @@ hashrate and estimated earnings; compare that to what Salad bills per hour.
 |---|---|
 | `HSA_STATUS_ERROR_OUT_OF_RESOURCES` in rocminfo | Image ROCm < 7.1 or something overwrote `LD_LIBRARY_PATH`. Don't set those in Dockerfile/entrypoint. |
 | `no accepted share after 600s - killing and trying next miner` | That miner can't hash on this node's driver stack; the entrypoint moves on. Once you see `ACCEPTED SHARE - this miner works`, pin it with `MINERS=<name>` to skip the probing on future reallocations. |
+| `pool check: no TLS handshake to ...` then `asking Salad to reallocate` | The node's network lets TCP through but no TLS session to the pool ever completes (seen on a 5070 Ti Laptop host: BzMiner `TLS connect failed`, SRBMiner silent, GPU idle). Nothing can mine there; Salad moves the replica. `POOL_CHECK=0` to skip the check. |
+| `pool check: TLS handshake works but the certificate does NOT verify` | The host's network intercepts TLS (on such a host the region probe reads 1-4 ms to every region on earth). SRBMiner and BzMiner mine through it; krig is skipped because it refuses the intercepted pool. |
+| `no miner produced an accepted share this pass` then `asking Salad to reallocate` | Every miner in `MINERS` ran and none got a share within `NO_SHARE_TIMEOUT`. The node can't mine (network, driver, GPU); Salad moves the replica. Raise `MAX_FAILED_PASSES` to retry on the same node first. |
 | krig: `CUDA driver call failed (host A pinned alloc): 2`, retrying forever | krig couldn't page-lock host RAM for this card's buffers (seen on RX 9070 XT at 4 GB). Give the group 8 GB, or pin `MINERS=bz`. The entrypoint moves on after `NO_SHARE_TIMEOUT` either way. |
 | krig: HIP runtime / `hipErrorNoDevice` | Try `KRIG_EXTRA_ARGS=--rocm-runtime 7` (the image ships ROCm 7.2; krig tries HIP 6 first by default). If that fails, `MINERS=srb bz wildrig`. |
 | WildRig: `CL_BUILD_PROGRAM_FAILURE` | Expected under ROCm OpenCL — WildRig targets AMD's proprietary driver. That's why it's last in the list. |
@@ -216,6 +222,7 @@ changes meaning or a default pool switches.
 
 | Version | Date | Notes |
 |---|---|---|
+| v1.3.0 | 2026-09-25 | Two node traps. `POOL_CHECK`: after region selection, a TLS handshake with certificate verification against the pool; no handshake (even to the global endpoint) hands the replica back to Salad at once, an unverifiable certificate marks the network as TLS-intercepting and skips krig. `MAX_FAILED_PASSES`: a full pass through `MINERS` with no accepted share from any miner hands the replica back instead of retrying forever; the bench does the same when no miner produced a hashrate. Both came from Salad laptop hosts on 2026-09-25: one where no TLS connect to 8048 ever completed (GPU idle, billed anyway), one where an intercepting network made krig refuse the pool. Same `common.sh`/`entrypoint.sh`/`bench.sh` as pearl-salad-nvidia v1.5.0. |
 | v1.2.2 | 2026-09-24 | BzMiner prints its device table every 5 min instead of every 30 s (Salad's group log view caps at 1000 rows and a 5-node BzMiner group filled it in 20 min); `--no-color`. Detection unchanged (uses the per-minute `shares=N` line). |
 | v1.2.1 | 2026-09-24 | Bench parser: BzMiner summary rows carry `pool hr | miner hr` once shares arrive; take the miner column, not the pool estimate. RX 9070 XT results: BzMiner 126 TH/s beats SRBMiner 91; krig fails its pinned-memory allocation at 4 GB. Per-class `MINERS=` table. |
 | v1.2.0 | 2026-09-24 | Benchmark image `pearl-salad-bench` (same Dockerfile, `bench` stage) and shared `common.sh`. Share detector now understands BzMiner's `shares=N` counter (BzMiner has no "accepted" wording, so v1.1.0 could never confirm it). Diagnostics when a miner is dropped. First bench on RX 9060 XT: krig 49.1 > SRBMiner 42.3 > BzMiner ~33 TH/s; WildRig doesn't hash. |
