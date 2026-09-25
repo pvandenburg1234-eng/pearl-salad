@@ -51,6 +51,16 @@ for ($i = 0; $i -lt $arr.Count; $i++) {
   if ($v -is [pscustomobject] -and $v.PSObject.Properties['paid'] -and $v.PSObject.Properties['unpaid']) { $bal = Resolve-Node $i 0; break }
 }
 if (-not $bal) { throw 'balance object not found in the Kryptex payload' }
+# Hashtable vs PSCustomObject member access differs between Windows
+# PowerShell 5.1 and pwsh 7; read fields through one helper.
+function Get-Field($o, $k) {
+  if ($null -eq $o) { return $null }
+  if ($o -is [hashtable]) { return $o[$k] }
+  $p = $o.PSObject.Properties[$k]; if ($p) { return $p.Value }; return $null
+}
+"balance payload: " + (ConvertTo-Json -InputObject $bal -Compress -Depth 4)
+$paid = [double](Get-Field $bal 'paid'); $unpaid = [double](Get-Field $bal 'unpaid')
+$rw = Get-Field $bal 'reward'; $rweek = [double](Get-Field $rw 'week'); $rmonth = [double](Get-Field $rw 'month')
 
 # ---- workers + pool -------------------------------------------------------
 $workers = (Invoke-RestMethod -Uri "https://pool.kryptex.com/prl/api/v3/miner/workers/$wallet" -UserAgent $ua -TimeoutSec 60).results
@@ -63,8 +73,8 @@ foreach ($w in $workers) { $sum30 += [double]$w.avg_hashrate_30m; $sum24 += [dou
 $events = New-Object System.Collections.ArrayList
 [void]$events.Add(@{
   _time = $now; source = 'kryptex'; kind = 'balance'; wallet = $wallet
-  paid_prl = [double]$bal.paid; unpaid_prl = [double]$bal.unpaid; total_prl = [double]$bal.paid + [double]$bal.unpaid
-  reward_week_prl = [double]$bal.reward.week; reward_month_prl = [double]$bal.reward.month
+  paid_prl = $paid; unpaid_prl = $unpaid; total_prl = $paid + $unpaid
+  reward_week_prl = $rweek; reward_month_prl = $rmonth
   workers_online = $online.Count; workers_total = $workers.Count
   pool_ths_30m = [math]::Round($sum30 / 1e12, 2); pool_ths_24h = [math]::Round($sum24 / 1e12, 2)
   net_hashrate_phs = [math]::Round([double]$pool.net_hashrate / 1e15, 3); pool_hashrate_phs = [math]::Round([double]$pool.hashrate / 1e15, 3)
@@ -81,5 +91,5 @@ foreach ($w in $workers) {
 }
 $body = ConvertTo-Json -InputObject @($events) -Depth 5 -Compress
 $r = Invoke-RestMethod -Method Post -Uri "https://$axhost/v1/ingest/$dataset" -Headers @{ Authorization = "Bearer $tok" } -ContentType 'application/json' -Body $body -TimeoutSec 60
-"$now  ingested=$($r.ingested) failed=$($r.failed)  paid=$($bal.paid) unpaid=$($bal.unpaid) online=$($online.Count)/$($workers.Count) pool30m=$([math]::Round($sum30/1e12,1)) TH/s"
+"$now  ingested=$($r.ingested) failed=$($r.failed)  paid=$paid unpaid=$unpaid online=$($online.Count)/$($workers.Count) pool30m=$([math]::Round($sum30/1e12,1)) TH/s"
 if ($r.failed -gt 0) { $r.failures | ConvertTo-Json -Depth 4; exit 1 }
