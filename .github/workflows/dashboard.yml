@@ -52,23 +52,21 @@ jobs:
       - name: Skip (no CLOUDFLARE_API_TOKEN secret yet)
         if: steps.has.outputs.token != 'yes'
         run: echo "::notice::CLOUDFLARE_API_TOKEN is not set; dashboard not deployed."
-      - name: Verify the Cloudflare token (prints status only, never the token)
-        if: steps.has.outputs.token == 'yes'
-        env:
-          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          echo "token length: ${#CF}"
-          case "$CF" in *[[:space:]]*) echo "::warning::token contains whitespace or a line break" ;; esac
-          curl -s https://api.cloudflare.com/client/v4/user/tokens/verify -H "Authorization: Bearer $CF" \
-            | python3 -c 'import json,sys; r=json.load(sys.stdin); print("success:", r.get("success"), "status:", (r.get("result") or {}).get("status"), "errors:", r.get("errors"))'
+      # Secrets set from a Windows prompt or pipe can carry a trailing CR/LF;
+      # tokens never contain whitespace, so strip it before use.
       - name: Deploy
         if: steps.has.outputs.token == 'yes'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          workingDirectory: dashboard
-          wranglerVersion: '3'
-          secrets: |
-            AXIOM_QUERY_TOKEN
+        working-directory: dashboard
         env:
-          AXIOM_QUERY_TOKEN: ${{ secrets.AXIOM_QUERY_TOKEN }}
+          CF_RAW: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AXQ_RAW: ${{ secrets.AXIOM_QUERY_TOKEN }}
+        run: |
+          export CLOUDFLARE_API_TOKEN="$(printf '%s' "$CF_RAW" | tr -d '[:space:]')"
+          AXQ="$(printf '%s' "$AXQ_RAW" | tr -d '[:space:]')"
+          echo "::add-mask::$CLOUDFLARE_API_TOKEN"
+          echo "::add-mask::$AXQ"
+          echo "cloudflare token length after trim: ${#CLOUDFLARE_API_TOKEN}; axiom query token length after trim: ${#AXQ}"
+          curl -s https://api.cloudflare.com/client/v4/user/tokens/verify -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            | python3 -c 'import json,sys; r=json.load(sys.stdin); print("token verify: success", r.get("success"), (r.get("result") or {}).get("status"), r.get("errors"))'
+          npx --yes wrangler@3 deploy
+          if [ -n "$AXQ" ]; then printf '%s' "$AXQ" | npx --yes wrangler@3 secret put AXIOM_QUERY_TOKEN; else echo "::warning::AXIOM_QUERY_TOKEN is not set"; fi
