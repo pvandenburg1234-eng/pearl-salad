@@ -22,11 +22,18 @@
 #                    (backfill), split into N parallel slices per org. Does not
 #                    touch the cursor unless -SaveCursor (sets it to -To).
 #
-# Groups that ship their own log (image with AXIOM_TOKEN set, via=container)
-# go in ~/.salad-pull-skip-groups, one container group name per line; their
-# lines are skipped here so they don't land in Axiom twice.
+# Instances that ship their own log (pearl-salad v1.4.0 / NVIDIA v1.6.0 with
+# AXIOM_TOKEN set) are skipped automatically: each run first asks Axiom which
+# instance ids have via=container lines since 15 min before the window, and
+# leaves those out, so nothing lands twice. Everything else is copied: old
+# versions during a rolling update, groups with LOG_SHIP=0 or no token, an
+# instance whose own posts fail. If that Axiom query fails, nothing is skipped
+# for the run (duplicates rather than gaps). ~/.salad-pull-skip-groups (one
+# container group name per line) still skips whole groups by hand.
 #
-# Tokens: Axiom ingest token from AXIOM_INGEST_TOKEN or ~/.axiom-ingest-token.
+# Tokens: Axiom ingest token from AXIOM_INGEST_TOKEN or ~/.axiom-ingest-token;
+# Axiom query token (for the check above) from AXIOM_QUERY_TOKEN or
+# ~/.axiom-token.
 param(
   [string]$From,
   [string]$To,
@@ -38,7 +45,8 @@ param(
   [switch]$SaveCursor,
   [switch]$NoState,
   [string]$StateFile = "$env:USERPROFILE\.salad-pull-state.json",
-  [string]$SkipFile = "$env:USERPROFILE\.salad-pull-skip-groups"
+  [string]$SkipFile = "$env:USERPROFILE\.salad-pull-skip-groups",
+  [switch]$DryRun   # fetch and filter, post nothing (ingested = would be ingested)
 )
 $ErrorActionPreference = 'Stop'
 $dataset = if ($env:AXIOM_DATASET) { $env:AXIOM_DATASET } else { 'salad-prl' }
@@ -56,6 +64,22 @@ function ParseUtc([string]$s) { [datetimeoffset]::Parse($s, [Globalization.Cultu
 # The API takes millisecond times; items carry microseconds.
 function FloorMs([datetime]$t) { New-Object DateTime ($t.Ticks - ($t.Ticks % 10000)), ([DateTimeKind]::Utc) }
 function ItemKey($it) { "$($it.time)|$($it.resource.labels.instance_id)|$($it.text_log)" }
+
+# Instance ids with via=container lines in Axiom between $since and now.
+# Returns $null when the check can't be made.
+function Get-ShippingInstances([datetime]$since) {
+  $qtok = $env:AXIOM_QUERY_TOKEN
+  if (-not $qtok -and (Test-Path "$env:USERPROFILE\.axiom-token")) { $qtok = (Get-Content "$env:USERPROFILE\.axiom-token" -Raw).Trim() }
+  if (-not $qtok) { return $null }
+  $apl = "['$dataset'] | where via == 'container' | summarize n = count() by i = tostring(['resource.labels.instance_id'])"
+  $body = @{ apl = $apl; startTime = (Fmt $since); endTime = (Fmt (Get-Date).ToUniversalTime().AddMinutes(1)) } | ConvertTo-Json
+  try {
+    $r = Invoke-RestMethod -Method Post -Uri 'https://api.axiom.co/v1/datasets/_apl?format=legacy' -Headers @{ Authorization = "Bearer $qtok" } -ContentType 'application/json' -Body $body -TimeoutSec 60
+  } catch { return $null }
+  $set = @{}
+  foreach ($b in @($r.buckets.totals)) { if ($b.group.i) { $set[[string]$b.group.i] = 1 } }
+  return $set
+}
 
 $end = if ($To) { ParseUtc $To } else { (Get-Date).ToUniversalTime().AddSeconds(-$LagSec) }
 $end = FloorMs $end
@@ -106,6 +130,7 @@ function Invoke-Salad($org, $key, $s, $e) {
 
 function Send-Axiom($events) {
   if ($events.Count -eq 0) { return 0 }
+  if ($DryRun) { return $events.Count }
   $json = ConvertTo-Json -InputObject @($events) -Depth 6 -Compress
   $bytes = [Text.Encoding]::UTF8.GetBytes($json)
   for ($try = 1; ; $try++) {
@@ -119,6 +144,12 @@ function Send-Axiom($events) {
     }
   }
 }
+
+# One self-shipping check per run, covering the earliest window start.
+$since = if ($From) { ParseUtc $From } else { (Get-Date).ToUniversalTime().AddMinutes(-10) }
+foreach ($o in $Orgs) { if (-not $From -and $state[$o]) { $c = ParseUtc $state[$o].cursor; if ($c -lt $since) { $since = $c } } }
+$shipping = Get-ShippingInstances ($since.AddMinutes(-15))
+if ($null -eq $shipping) { "self-shipping check failed (Axiom query) - nothing skipped this run" }
 
 $rc = 0
 foreach ($org in $Orgs) {
@@ -146,7 +177,7 @@ foreach ($org in $Orgs) {
       $items = @($r.items)
       foreach ($it in $items) {
         if (-not $seen.Add((ItemKey $it))) { $dups++; continue }
-        if ($skip.ContainsKey([string]$it.resource.labels.container_group_name)) { $skipped++; continue }
+        if ($skip.ContainsKey([string]$it.resource.labels.container_group_name) -or ($shipping -and $shipping.ContainsKey([string]$it.resource.labels.instance_id))) { $skipped++; continue }
         $got++
         $msg = if ($null -ne $it.text_log) { $it.text_log } elseif ($it.json_log) { ConvertTo-Json -InputObject $it.json_log -Depth 8 -Compress } else { '' }
         $ev = @{ _time = $it.time; '@timestamp' = $it.time; log = @{ message = $msg }; resource = $it.resource; severity = $it.severity; via = 'salad-api' }
@@ -174,7 +205,7 @@ foreach ($org in $Orgs) {
   $stopS = Fmt $stop
   $boundary = @(); if (-not $From -and -not $NoState) { $boundary = @($seen | Where-Object { $_ -and ((FloorMs (ParseUtc ($_ -split '\|')[0])) -ge $stop) }) }
   if (-not $From -and -not $NoState) { $state[$org] = @{ cursor = $stopS; keys = $boundary } }
-  "{0}  {1}  {2} .. {3}  calls={4} lines={5} dups={6} skipped={7} ingested={8}  {9:n0}s" -f (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'), $org, (Fmt $start), $stopS, $calls, $got, $dups, $skipped, $sent, $sw.Elapsed.TotalSeconds
+  "{0}  {1}  {2} .. {3}  calls={4} lines={5} dups={6} skipped={7} ingested={8} self-shipping={9}  {10:n0}s" -f (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'), $org, (Fmt $start), $stopS, $calls, $got, $dups, $skipped, $sent, $(if ($shipping) { $shipping.Count } else { '?' }), $sw.Elapsed.TotalSeconds
 }
 if (-not $From -and -not $NoState) { $state | ConvertTo-Json -Depth 4 | Set-Content $StateFile -Encoding utf8 }
 exit $rc
