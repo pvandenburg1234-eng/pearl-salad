@@ -61,6 +61,7 @@ export function buildFleet(d, now) {
     w.lastSeen = Math.max(w.lastSeen, ms(r._time));
   }
   const pool = new Map((d.pool_workers || []).map(p => [p.machine, p]));
+  const shareStats = shareRates(d.shares || [], d.share_diff || []);
 
   const active = [];
   for (const w of workers.values()) {
@@ -73,6 +74,12 @@ export function buildFleet(d, now) {
     const p = pool.get(w.machine);
     w.pool = p ? { ths30m: p.ths_30m, ths3h: p.ths_3h, ths24h: p.ths_24h, status: p.status, valid: p.valid, stale: p.stale } : null;
     w.pricePerHour = PRICE_PER_HOUR[w.gpu] ?? null;
+    const s = shareStats.get(w.id);
+    w.shares = s ? {
+      ...s,
+      // expected seconds per share = difficulty / hashrate (P = 1e15, TH/s = 1e12)
+      expectedSec: s.diffP && w.avg ? round1(s.diffP * 1000 / w.avg) : null,
+    } : null;
     delete w.readings;
     if (w.active) active.push(w);
   }
@@ -95,6 +102,7 @@ export function buildFleet(d, now) {
       gpuMix: Object.entries(gpuMix).sort((a, b) => b[1] - a[1]).map(([gpu, n]) => ({ gpu, n })),
       costPerHour,
       avgReadings: AVG_READINGS,
+      sharesPerHour: round1(active.reduce((s, w) => s + ((w.shares && w.shares.perHour) || 0), 0)),
     },
     kryptex: bal ? {
       at: bal._time, paid: bal.paid_prl, unpaid: bal.unpaid_prl, total: bal.total_prl, week: bal.reward_week_prl,
@@ -107,6 +115,45 @@ export function buildFleet(d, now) {
     },
     events: (d.events || []).map(e => ({ t: e._time, machine: String(e.m || '').slice(0, 8), group: e.g, msg: String(e.msg || '').replace(/^=== | ===$/g, '') })),
   };
+}
+
+// Accepted-share rate per worker over the last hour, from the miners' logs:
+//   BzMiner / krig print a running total (cnt); a drop means the miner
+//   restarted, so only the part after the last drop counts.
+//   SRBMiner prints one "share accepted" line per share (acc = 1).
+// secPerShare = time per accepted share; null when there is too little data.
+const MIN_SPAN_S = 300;
+export function shareRates(rows, diffRows) {
+  const byM = new Map();
+  for (const r of rows) {
+    if (!byM.has(r.m)) byM.set(r.m, []);
+    byM.get(r.m).push({ t: ms(r._time), cnt: r.cnt, acc: r.acc });
+  }
+  const diff = new Map(diffRows.map(r => [r.m, r.diff]));
+  const out = new Map();
+  for (const [m, pts] of byM) {
+    pts.sort((a, b) => a.t - b.t);
+    let shares = 0, span = 0;
+    const counters = pts.filter(p => p.cnt !== null && p.cnt !== undefined);
+    if (counters.length >= 2) {
+      let start = 0;
+      for (let i = 1; i < counters.length; i++) if (counters[i].cnt < counters[i - 1].cnt) start = i;
+      const seg = counters.slice(start);
+      if (seg.length >= 2) { shares = seg[seg.length - 1].cnt - seg[0].cnt; span = (seg[seg.length - 1].t - seg[0].t) / 1000; }
+    } else {
+      const acc = pts.filter(p => p.acc === 1);
+      if (acc.length >= 2) { shares = acc.length - 1; span = (acc[acc.length - 1].t - acc[0].t) / 1000; }
+    }
+    if (span < MIN_SPAN_S) { out.set(m, { secPerShare: null, perHour: null, shares, spanMin: round1(span / 60), diffP: diff.get(m) ?? null }); continue; }
+    out.set(m, {
+      secPerShare: shares > 0 ? round1(span / shares) : null,
+      perHour: round1(shares / span * 3600),
+      shares,
+      spanMin: round1(span / 60),
+      diffP: diff.get(m) ?? null,
+    });
+  }
+  return out;
 }
 
 function round1(x) { return Math.round(x * 10) / 10; }

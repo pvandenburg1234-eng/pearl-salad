@@ -80,6 +80,11 @@
   </section>
 
   <section class="panel wide">
+    <h2 id="shareTitle">Time per accepted share, last hour</h2>
+    <div class="chartbox"><canvas id="shares"></canvas></div>
+  </section>
+
+  <section class="panel wide">
     <h2>Last 24 h: fleet (miners' logs) vs pool side (Kryptex 30 min average)</h2>
     <div class="chartbox"><canvas id="trend"></canvas></div>
   </section>
@@ -98,7 +103,7 @@
   var REFRESH_MS = 30000;
   var GROUP_COLORS = ['#4ea1ff', '#3ecf8e', '#f5b942', '#c77dff', '#ff8fab', '#5ce1e6'];
   var groupColor = {};
-  var bars = null, trend = null, lastOk = 0;
+  var bars = null, shareChart = null, trend = null, lastOk = 0;
 
   Chart.defaults.color = '#8b93a7';
   Chart.defaults.borderColor = '#262b36';
@@ -157,6 +162,53 @@
       bars.data.labels = labels; bars.data.datasets[0].data = values; bars.data.datasets[0].backgroundColor = colors; bars.update();
     }
     bars.$workers = w;
+
+    // Time per accepted share: same worker order as the hashrate chart.
+    // Bars = measured seconds per share over the last hour; the white marker
+    // = what that worker's hashrate should give at its pool difficulty.
+    $('shareTitle').textContent = 'Time per accepted share, last hour (seconds, lower is better; marker = expected from hashrate)' +
+      (f.sharesPerHour ? ' · fleet ' + fmt(f.sharesPerHour, 0) + ' shares/h' : '');
+    var sVals = w.map(function (x) { return x.shares ? x.shares.secPerShare : null; });
+    var sExp = w.map(function (x) { return x.shares ? x.shares.expectedSec : null; });
+    var sColors = w.map(function (x) {
+      var s = x.shares;
+      if (s && s.secPerShare && s.expectedSec && s.secPerShare > s.expectedSec * 1.5) return '#f5b942';
+      return colorFor(x.group);
+    });
+    if (!shareChart) {
+      shareChart = new Chart($('shares'), {
+        type: 'bar',
+        data: { labels: labels, datasets: [
+          { type: 'bar', label: 'measured', data: sVals, backgroundColor: sColors, borderRadius: 4, order: 2 },
+          { type: 'line', label: 'expected', data: sExp, showLine: false, pointStyle: 'line', pointRadius: 12, pointBorderWidth: 3, borderColor: '#e6e9ef', backgroundColor: '#e6e9ef', order: 1 }
+        ] },
+        options: {
+          maintainAspectRatio: false, animation: { duration: 300 },
+          plugins: {
+            legend: { display: false },
+            tooltip: { filter: function (item) { return item.datasetIndex === 0; }, callbacks: {
+              title: function (items) { var x = shareChart.$workers[items[0].dataIndex]; return x.machine + ' · ' + x.group; },
+              label: function (item) {
+                var x = shareChart.$workers[item.dataIndex], s = x.shares;
+                if (!s) return 'no share data yet';
+                var lines = [];
+                lines.push(s.secPerShare ? fmt(s.secPerShare, 0) + ' s per accepted share' : (s.spanMin < 5 ? 'not enough data yet (' + fmt(s.spanMin, 0) + ' min)' : 'no accepted share in ' + fmt(s.spanMin, 0) + ' min'));
+                if (s.perHour !== null) lines.push(fmt(s.perHour, 1) + ' shares/h (' + s.shares + ' in ' + fmt(s.spanMin, 0) + ' min)');
+                if (s.expectedSec) lines.push('expected ' + fmt(s.expectedSec, 0) + ' s at ' + fmt(s.diffP, 2) + 'P and ' + fmt(x.avg, 1) + ' TH/s');
+                if (s.secPerShare && s.expectedSec) lines.push('luck ' + fmt(s.expectedSec / s.secPerShare * 100, 0) + '%');
+                return lines;
+              } } }
+          },
+          scales: { y: { beginAtZero: true, title: { display: true, text: 'seconds per share' } }, x: { ticks: { autoSkip: false, maxRotation: 60, minRotation: 45 } } }
+        }
+      });
+    } else {
+      shareChart.data.labels = labels;
+      shareChart.data.datasets[0].data = sVals; shareChart.data.datasets[0].backgroundColor = sColors;
+      shareChart.data.datasets[1].data = sExp;
+      shareChart.update();
+    }
+    shareChart.$workers = w;
 
     var tf = d.trend.fleet, tp = d.trend.pool;
     var fleetPts = tf.map(function (r) { return { x: Date.parse(r.t), y: r.ths }; });

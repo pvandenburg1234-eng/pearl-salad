@@ -3,7 +3,7 @@
   "live": {
     "readings": {
       "minutes": 15,
-      "apl": "['{DS}'] | where _time > ago(15m) and isnull(source) and isnull(probe) | extend msg = replace_regex(@'\\x1b\\[[0-9;]*[A-Za-z]', '', tostring(['log.message'])) | extend ths = coalesce(toreal(extract(@'#\\d+\\s+.*?(\\d+\\.?\\d*)\\s*TH/s', 1, msg)), toreal(extract(@'pearl hashrate (\\d+\\.?\\d*)th', 1, msg)), toreal(extract(@'Total: (\\d+\\.?\\d*) TH/s', 1, msg))) | extend gpu = case(msg matches regex @'^\\|\\s*\\w+:\\d+\\s*\\|\\s*gfx[0-9a-f]+\\s*\\|', extract(@'(gfx[0-9a-f]+)', 1, msg), msg contains 'GPU arch:', extract(@'GPU arch:\\s*(gfx[0-9a-f]+)', 1, msg), msg matches regex @'#\\d+\\s+(NVIDIA |GeForce )?(RTX|GTX)', extract(@'#\\d+\\s+(.+?)\\s+[\\d.]+\\s*[KMGTP]?H/s', 1, msg), msg contains '=== GPU: ', extract(@'=== GPU: (.+?) ===', 1, msg), '') | extend watts = toreal(extract(@'TH/s\\s+(\\d+\\.?\\d*)W', 1, msg)), temp = toint(extract(@'W\\s+[\\d.]+\\s+\\S+\\s+(\\d+)C', 1, msg)), mhz = toint(extract(@'(\\d+)C\\s+(\\d+)\\s+\\d+', 2, msg)) | where isnotnull(ths) or gpu != '' | project _time, m = tostring(['resource.labels.machine_id']), g = tostring(['resource.labels.container_group_name']), ths, gpu, watts, temp, mhz"
+      "apl": "['{DS}'] | where _time > ago(15m) and isnull(source) and isnull(probe) | extend msg = replace_regex(@'\\x1b\\[[0-9;]*[A-Za-z]', '', tostring(['log.message'])) | extend ths = coalesce(toreal(extract(@'#\\d+\\s+.*?(\\d+\\.?\\d*)\\s*TH/s', 1, msg)), toreal(extract(@'pearl hashrate (\\d+\\.?\\d*)th', 1, msg)), toreal(extract(@'Total: (\\d+\\.?\\d*) TH/s', 1, msg))) | extend gpu = case(msg matches regex @'^\\|\\s*\\w+:\\d+\\s*\\|\\s*gfx[0-9a-f]+\\s*\\|', extract(@'(gfx[0-9a-f]+)', 1, msg), msg contains 'GPU arch:', extract(@'GPU arch:\\s*(gfx[0-9a-f]+)', 1, msg), msg matches regex @'#\\d+\\s+(NVIDIA |GeForce )?(RTX|GTX)', extract(@'#\\d+\\s+(.+?)\\s+[\\d.]+\\s*[KMGTP]?H/s', 1, msg), msg contains '=== GPU: ', extract(@'=== GPU: (.+?) ===', 1, msg), '') | extend watts = toreal(extract(@'TH/s\\s+(\\d+\\.?\\d*)W', 1, msg)), temp = toint(extract(@'W\\s+[\\d.]+\\s+\\S+\\s+(\\d+)C', 1, msg)), mhz = toint(extract(@'(\\d+)C\\s+(\\d+)\\s+\\d+', 2, msg)) | where isnotnull(ths) or gpu != '' | project _time, m = tostring(['resource.labels.machine_id']), g = tostring(['resource.labels.container_group_name']), ths, gpu, watts, temp, mhz | take 5000"
     },
     "activity": {
       "minutes": 15,
@@ -16,6 +16,14 @@
     "balance": {
       "minutes": 10,
       "apl": "['{DS}'] | where source == 'kryptex' and kind == 'balance' and _time > ago(10m) | top 1 by _time desc | project _time, paid_prl, unpaid_prl, total_prl, reward_week_prl, workers_online, workers_total, pool_ths_30m, net_hashrate_phs, block_reward_prl"
+    },
+    "shares": {
+      "minutes": 65,
+      "apl": "['{DS}'] | where _time > ago(65m) and isnull(source) and isnull(probe) | extend msg = replace_regex(@'\\x1b\\[[0-9;]*[A-Za-z]', '', tostring(['log.message'])) | extend cnt = coalesce(toint(extract(@'shares=(\\d+)', 1, msg)), toint(extract(@'Total:.*?(\\d+) accepted', 1, msg))), acc = iff(msg contains 'share accepted', 1, 0) | where isnotnull(cnt) or acc == 1 | project _time, m = tostring(['resource.labels.machine_id']), cnt, acc | take 10000"
+    },
+    "share_diff": {
+      "minutes": 65,
+      "apl": "['{DS}'] | where _time > ago(65m) and isnull(source) and isnull(probe) | extend diff = toreal(extract(@'(?:pool difficulty|diff) ([\\d.]+)P', 1, replace_regex(@'\\x1b\\[[0-9;]*[A-Za-z]', '', tostring(['log.message'])))) | where isnotnull(diff) | summarize arg_max(_time, diff) by m = tostring(['resource.labels.machine_id'])"
     }
   },
   "slow": {
