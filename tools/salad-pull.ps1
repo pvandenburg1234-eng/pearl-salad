@@ -22,6 +22,10 @@
 #                    (backfill), split into N parallel slices per org. Does not
 #                    touch the cursor unless -SaveCursor (sets it to -To).
 #
+# Groups that ship their own log (image with AXIOM_TOKEN set, via=container)
+# go in ~/.salad-pull-skip-groups, one container group name per line; their
+# lines are skipped here so they don't land in Axiom twice.
+#
 # Tokens: Axiom ingest token from AXIOM_INGEST_TOKEN or ~/.axiom-ingest-token.
 param(
   [string]$From,
@@ -33,7 +37,8 @@ param(
   [int]$Jobs = 1,
   [switch]$SaveCursor,
   [switch]$NoState,
-  [string]$StateFile = "$env:USERPROFILE\.salad-pull-state.json"
+  [string]$StateFile = "$env:USERPROFILE\.salad-pull-state.json",
+  [string]$SkipFile = "$env:USERPROFILE\.salad-pull-skip-groups"
 )
 $ErrorActionPreference = 'Stop'
 $dataset = if ($env:AXIOM_DATASET) { $env:AXIOM_DATASET } else { 'salad-prl' }
@@ -43,6 +48,8 @@ if (-not $axtok -and (Test-Path "$env:USERPROFILE\.axiom-ingest-token")) { $axto
 if (-not $axtok) { throw 'AXIOM_INGEST_TOKEN is not set and ~/.axiom-ingest-token does not exist' }
 if (-not $Orgs) { $Orgs = @(Get-ChildItem "$env:USERPROFILE\.salad-api-key-*" -Force | ForEach-Object { $_.Name -replace '^\.salad-api-key-', '' }) }
 if (-not $Orgs) { throw 'no ~/.salad-api-key-<org> files' }
+$skip = @{}
+if (Test-Path $SkipFile) { Get-Content $SkipFile | ForEach-Object { $g = $_.Trim(); if ($g -and -not $g.StartsWith('#')) { $skip[$g] = 1 } } }
 
 function Fmt([datetime]$t) { $t.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ') }
 function ParseUtc([string]$s) { [datetimeoffset]::Parse($s, [Globalization.CultureInfo]::InvariantCulture).UtcDateTime }
@@ -130,7 +137,7 @@ foreach ($org in $Orgs) {
   if ($stop -le $start) { "${org}: nothing to do (cursor $(Fmt $start))"; continue }
 
   $sw = [Diagnostics.Stopwatch]::StartNew()
-  $cur = $start; $calls = 0; $got = 0; $sent = 0; $dups = 0
+  $cur = $start; $calls = 0; $got = 0; $sent = 0; $dups = 0; $skipped = 0
   $buf = New-Object System.Collections.ArrayList
   $boundary = @()
   try {
@@ -139,6 +146,7 @@ foreach ($org in $Orgs) {
       $items = @($r.items)
       foreach ($it in $items) {
         if (-not $seen.Add((ItemKey $it))) { $dups++; continue }
+        if ($skip.ContainsKey([string]$it.resource.labels.container_group_name)) { $skipped++; continue }
         $got++
         $msg = if ($null -ne $it.text_log) { $it.text_log } elseif ($it.json_log) { ConvertTo-Json -InputObject $it.json_log -Depth 8 -Compress } else { '' }
         $ev = @{ _time = $it.time; '@timestamp' = $it.time; log = @{ message = $msg }; resource = $it.resource; severity = $it.severity; via = 'salad-api' }
@@ -166,7 +174,7 @@ foreach ($org in $Orgs) {
   $stopS = Fmt $stop
   $boundary = @(); if (-not $From -and -not $NoState) { $boundary = @($seen | Where-Object { $_ -and ((FloorMs (ParseUtc ($_ -split '\|')[0])) -ge $stop) }) }
   if (-not $From -and -not $NoState) { $state[$org] = @{ cursor = $stopS; keys = $boundary } }
-  "{0}  {1}  {2} .. {3}  calls={4} lines={5} dups={6} ingested={7}  {8:n0}s" -f (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'), $org, (Fmt $start), $stopS, $calls, $got, $dups, $sent, $sw.Elapsed.TotalSeconds
+  "{0}  {1}  {2} .. {3}  calls={4} lines={5} dups={6} skipped={7} ingested={8}  {9:n0}s" -f (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'), $org, (Fmt $start), $stopS, $calls, $got, $dups, $skipped, $sent, $sw.Elapsed.TotalSeconds
 }
 if (-not $From -and -not $NoState) { $state | ConvertTo-Json -Depth 4 | Set-Content $StateFile -Encoding utf8 }
 exit $rc
