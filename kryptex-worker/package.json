@@ -1,0 +1,6 @@
+{
+  "name": "kryptex-worker",
+  "private": true,
+  "type": "module",
+  "description": "Kryptex PRL pool stats -> Axiom, as a Cloudflare Worker on a cron trigger (see README.md)"
+}

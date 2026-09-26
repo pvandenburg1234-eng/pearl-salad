@@ -1,0 +1,26 @@
+name: kryptex-worker-test
+
+# Dry run of kryptex-worker/worker.js on Node: fetch and parse the live
+# Kryptex data exactly as the Cloudflare Worker does, check the fields,
+# post nothing. Run by hand after changing the Worker.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'kryptex-worker/**'
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Dry run
+        run: node kryptex-worker/test.mjs
