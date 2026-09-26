@@ -1,0 +1,65 @@
+name: dashboard
+
+# Test and deploy the PRL fleet dashboard (Cloudflare Worker in dashboard/).
+# Test: Node run of dashboard/test/fleet.test.mjs + a wrangler dry-run bundle.
+# Deploy: only on main, and only once the repository secrets exist:
+#   CLOUDFLARE_API_TOKEN  Cloudflare API token ("Edit Cloudflare Workers" template)
+#   AXIOM_QUERY_TOKEN     read-only Axiom query token, set as the Worker secret
+
+on:
+  push:
+    paths:
+      - 'dashboard/**'
+      - '.github/workflows/dashboard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Unit test
+        run: node test/fleet.test.mjs
+      - name: Bundle (wrangler dry run)
+        run: npx --yes wrangler@3 deploy --dry-run --outdir /tmp/bundle
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for the Cloudflare token
+        id: has
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: echo "token=$([ -n "$CF" ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+      - name: Skip (no CLOUDFLARE_API_TOKEN secret yet)
+        if: steps.has.outputs.token != 'yes'
+        run: echo "::notice::CLOUDFLARE_API_TOKEN is not set; dashboard not deployed."
+      - name: Deploy
+        if: steps.has.outputs.token == 'yes'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: dashboard
+          wranglerVersion: '3'
+          secrets: |
+            AXIOM_QUERY_TOKEN
+        env:
+          AXIOM_QUERY_TOKEN: ${{ secrets.AXIOM_QUERY_TOKEN }}

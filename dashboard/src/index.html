@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRL fleet</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%234ea1ff'/%3E%3C/svg%3E">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #e6e9ef; --muted: #8b93a7;
+    --accent: #4ea1ff; --good: #3ecf8e; --warn: #f5b942; --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 14px 16px 6px; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .status { color: var(--muted); font-size: 13px; }
+  header .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: middle; }
+  header .dot.stale { background: var(--warn); } header .dot.err { background: var(--bad); }
+  header a { color: var(--muted); font-size: 13px; margin-left: auto; }
+  main { padding: 8px 16px 24px; display: grid; gap: 12px; grid-template-columns: repeat(12, 1fr); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  .tile { grid-column: span 3; }
+  .tile .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .tile .big { font-size: 40px; font-weight: 650; color: var(--accent); line-height: 1.15; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { font-size: 12px; background: #1f2430; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+  .wide { grid-column: span 12; }
+  .half { grid-column: span 6; }
+  h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .chartbox { position: relative; height: 300px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; }
+  .tablewrap { overflow-x: auto; }
+  .low { color: var(--warn); } .dead { color: var(--bad); }
+  .events { max-height: 360px; overflow-y: auto; font-size: 13px; }
+  .events div { padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .events .t { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .events .m { color: var(--accent); margin-right: 8px; }
+  .error { color: var(--bad); }
+  @media (max-width: 900px) { .tile { grid-column: span 6; } .half { grid-column: span 12; } }
+  @media (max-width: 520px) { .tile { grid-column: span 12; } .tile .big { font-size: 34px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>PRL fleet</h1>
+  <span class="status"><span id="dot" class="dot"></span><span id="status">loading...</span></span>
+  <a id="pool" href="https://pool.kryptex.com/prl/miner/stats/prl1p38te2npf3907snmsjy5x0xerwxfa5g7gx5q4ctj5wenfw29m4gzqyyj0gg" target="_blank" rel="noopener">Kryptex stats</a>
+</header>
+<main>
+  <section class="panel tile">
+    <div class="label">Fleet hashrate</div>
+    <div class="big" id="ths">-</div>
+    <div class="sub" id="thsSub">TH/s, from the miners' logs</div>
+  </section>
+  <section class="panel tile">
+    <div class="label">Active workers</div>
+    <div class="big" id="workers">-</div>
+    <div class="legend" id="mix"></div>
+  </section>
+  <section class="panel tile">
+    <div class="label">Unpaid PRL (Kryptex)</div>
+    <div class="big" id="unpaid">-</div>
+    <div class="sub" id="unpaidSub"></div>
+  </section>
+  <section class="panel tile">
+    <div class="label">Total PRL earned</div>
+    <div class="big" id="total">-</div>
+    <div class="sub" id="totalSub"></div>
+  </section>
+
+  <section class="panel wide">
+    <h2 id="barTitle">Hashrate per active worker</h2>
+    <div class="chartbox"><canvas id="bars"></canvas></div>
+  </section>
+
+  <section class="panel wide">
+    <h2>Last 24 h: fleet (miners' logs) vs pool side (Kryptex 30 min average)</h2>
+    <div class="chartbox"><canvas id="trend"></canvas></div>
+  </section>
+
+  <section class="panel half">
+    <h2>Workers</h2>
+    <div class="tablewrap"><table id="table"></table></div>
+  </section>
+  <section class="panel half">
+    <h2>Events (last 24 h)</h2>
+    <div class="events" id="events"></div>
+  </section>
+</main>
+<script>
+(function () {
+  var REFRESH_MS = 30000;
+  var GROUP_COLORS = ['#4ea1ff', '#3ecf8e', '#f5b942', '#c77dff', '#ff8fab', '#5ce1e6'];
+  var groupColor = {};
+  var bars = null, trend = null, lastOk = 0;
+
+  Chart.defaults.color = '#8b93a7';
+  Chart.defaults.borderColor = '#262b36';
+  Chart.defaults.font.family = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+  function $(id) { return document.getElementById(id); }
+  function colorFor(g) {
+    if (!groupColor[g]) groupColor[g] = GROUP_COLORS[Object.keys(groupColor).length % GROUP_COLORS.length];
+    return groupColor[g];
+  }
+  function fmt(x, d) { return (x === null || x === undefined) ? '-' : Number(x).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }); }
+  function age(s) { if (s === null || s === undefined) return '-'; if (s < 90) return s + ' s'; return Math.round(s / 60) + ' min'; }
+  function hhmm(t) { var d = new Date(t); return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function render(d) {
+    var f = d.fleet, k = d.kryptex;
+    $('ths').textContent = fmt(f.ths, 1);
+    $('thsSub').textContent = 'TH/s, miners’ logs, average of each worker’s last ' + f.avgReadings + ' readings' + (f.costPerHour ? ' · about $' + fmt(f.costPerHour, 2) + '/h ($' + fmt(f.costPerHour * 24, 2) + '/day)' : '');
+    $('workers').textContent = f.activeWorkers;
+    $('mix').innerHTML = f.gpuMix.map(function (m) { return '<span class="chip">' + esc(m.gpu) + ' (' + m.n + ')</span>'; }).join('');
+    if (k) {
+      $('unpaid').textContent = fmt(k.unpaid, 3);
+      $('unpaidSub').textContent = 'paid so far ' + fmt(k.paid, 2) + ' PRL · pool sees ' + k.workersOnline + ' online';
+      $('total').textContent = fmt(k.total, 2);
+      $('totalSub').textContent = (k.earned24h !== null ? '+' + fmt(k.earned24h, 2) + ' PRL in the last 24 h · ' : '') + 'this week ' + fmt(k.week, 2);
+    }
+
+    var w = d.workers;
+    $('barTitle').textContent = 'Hashrate per active worker (TH/s, average of last ' + f.avgReadings + ' readings from the miners’ logs)';
+    var labels = w.map(function (x) { return x.machine; });
+    var values = w.map(function (x) { return x.avg; });
+    var colors = w.map(function (x) { return colorFor(x.group); });
+    if (!bars) {
+      bars = new Chart($('bars'), {
+        type: 'bar',
+        data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 4 }] },
+        options: {
+          maintainAspectRatio: false, animation: { duration: 300 },
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: {
+              title: function (items) { var x = bars.$workers[items[0].dataIndex]; return x.machine + ' · ' + x.group; },
+              label: function (item) {
+                var x = bars.$workers[item.dataIndex];
+                var lines = ['avg ' + fmt(x.avg, 1) + ' TH/s (' + x.nAvg + ' readings)', 'latest ' + fmt(x.latest, 1) + ' TH/s', (x.gpu || 'GPU not reported yet'), 'last line ' + age(x.ageS) + ' ago'];
+                if (x.pool) lines.push('pool 30m ' + fmt(x.pool.ths30m, 1) + ' TH/s');
+                if (x.watts !== null) lines.push(fmt(x.watts, 0) + ' W · ' + x.temp + ' °C · ' + x.mhz + ' MHz');
+                return lines;
+              } } }
+          },
+          scales: { y: { beginAtZero: true, title: { display: true, text: 'TH/s' } }, x: { ticks: { autoSkip: false, maxRotation: 60, minRotation: 45 } } }
+        }
+      });
+    } else {
+      bars.data.labels = labels; bars.data.datasets[0].data = values; bars.data.datasets[0].backgroundColor = colors; bars.update();
+    }
+    bars.$workers = w;
+
+    var tf = d.trend.fleet, tp = d.trend.pool;
+    var fleetPts = tf.map(function (r) { return { x: Date.parse(r.t), y: r.ths }; });
+    var poolPts = tp.map(function (r) { return { x: Date.parse(r.t), y: r.ths }; });
+    if (!trend) {
+      trend = new Chart($('trend'), {
+        type: 'line',
+        data: { datasets: [
+          { label: 'Fleet, miners’ logs (10 min)', data: fleetPts, borderColor: '#4ea1ff', pointRadius: 0, borderWidth: 2, tension: 0.2 },
+          { label: 'Pool side, Kryptex 30 min avg', data: poolPts, borderColor: '#3ecf8e', pointRadius: 0, borderWidth: 1.5, borderDash: [4, 3], tension: 0.2 }
+        ] },
+        options: {
+          maintainAspectRatio: false, animation: false, parsing: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { tooltip: { callbacks: { title: function (items) { return hhmm(items[0].parsed.x); } } } },
+          scales: {
+            x: { type: 'linear', ticks: { callback: function (v) { return hhmm(v); }, maxTicksLimit: 12 } },
+            y: { beginAtZero: false, title: { display: true, text: 'TH/s' } }
+          }
+        }
+      });
+    } else {
+      trend.data.datasets[0].data = fleetPts; trend.data.datasets[1].data = poolPts; trend.update();
+    }
+
+    var nvidia = w.some(function (x) { return x.watts !== null; });
+    var head = '<tr><th>Machine</th><th>Group</th><th>GPU</th><th class="num">Avg TH/s</th><th class="num">Latest</th><th class="num">Pool 30m</th>' +
+      (nvidia ? '<th class="num">W</th><th class="num">°C</th><th class="num">MHz</th>' : '') + '<th class="num">Last line</th></tr>';
+    var med = median(values.filter(function (v) { return v !== null; }));
+    var rows = w.map(function (x) {
+      var cls = x.avg === null ? 'dead' : (med && x.avg < med * 0.8 ? 'low' : '');
+      return '<tr><td>' + esc(x.machine) + '</td><td><span style="color:' + colorFor(x.group) + '">●</span> ' + esc(x.group) + '</td><td>' + esc(x.gpu || '-') + '</td>' +
+        '<td class="num ' + cls + '">' + fmt(x.avg, 1) + '</td><td class="num">' + fmt(x.latest, 1) + '</td><td class="num">' + (x.pool ? fmt(x.pool.ths30m, 1) : '-') + '</td>' +
+        (nvidia ? '<td class="num">' + fmt(x.watts, 0) + '</td><td class="num">' + (x.temp === null ? '-' : x.temp) + '</td><td class="num">' + (x.mhz === null ? '-' : x.mhz) + '</td>' : '') +
+        '<td class="num">' + age(x.ageS) + '</td></tr>';
+    }).join('');
+    $('table').innerHTML = head + rows;
+
+    $('events').innerHTML = d.events.map(function (e) {
+      return '<div><span class="t">' + hhmm(e.t) + '</span><span class="m">' + esc(e.machine) + '</span>' + esc(e.msg) + '</div>';
+    }).join('') || '<div>No events</div>';
+  }
+
+  function median(a) { if (!a.length) return null; var s = a.slice().sort(function (x, y) { return x - y; }); var m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+
+  function setStatus(text, cls) { $('status').textContent = text; $('dot').className = 'dot' + (cls ? ' ' + cls : ''); }
+
+  function load() {
+    fetch('/api/fleet', { credentials: 'same-origin' }).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; });
+    }).then(function (d) {
+      render(d);
+      lastOk = Date.now();
+      setStatus('data from ' + hhmm(d.generated) + ', refreshes every 30 s', '');
+    }).catch(function (e) {
+      setStatus('update failed: ' + e.message + (lastOk ? ' (showing data from ' + hhmm(lastOk) + ')' : ''), 'err');
+    });
+  }
+
+  load();
+  setInterval(load, REFRESH_MS);
+  setInterval(function () { if (lastOk && Date.now() - lastOk > 3 * REFRESH_MS) $('dot').className = 'dot stale'; }, 5000);
+})();
+</script>
+</body>
+</html>

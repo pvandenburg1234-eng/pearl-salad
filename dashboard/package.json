@@ -1,0 +1,9 @@
+{
+  "name": "prl-dashboard",
+  "private": true,
+  "type": "module",
+  "description": "PRL fleet dashboard on Cloudflare Workers, reading Axiom (see README.md)",
+  "scripts": {
+    "test": "node test/fleet.test.mjs"
+  }
+}

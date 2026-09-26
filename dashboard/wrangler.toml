@@ -1,0 +1,19 @@
+# PRL fleet dashboard (Cloudflare Worker). Deployed by
+# .github/workflows/dashboard.yml on pushes to dashboard/; see README.md.
+name = "prl-dashboard"
+main = "src/worker.js"
+compatibility_date = "2026-09-26"
+account_id = "85facb76f9a9dcaf0285dba48926f4f9"
+workers_dev = true
+
+# index.html is imported by worker.js as a string
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = true
+
+[vars]
+AXIOM_DATASET = "salad-prl"
+
+# Secret (not in this file): AXIOM_QUERY_TOKEN, a read-only Axiom query token.
+# The deploy workflow sets it from the GitHub secret of the same name.
