@@ -1,13 +1,15 @@
 name: pool-stats
 
-# Every 10 minutes: pull the wallet's Kryptex pool stats (balance, per-worker
-# pool-side hashrate, network hashrate) and push them into the Axiom dataset
-# next to the Salad container logs, for the PRL fleet dashboard.
+# Pull the wallet's Kryptex pool stats (balance, per-worker pool-side
+# hashrate, network hashrate) and push them into the Axiom dataset next to the
+# Salad container logs, for the PRL fleet dashboard.
 # Needs the repository secret AXIOM_INGEST_TOKEN (ingest-only, one dataset).
+#
+# Manual only since 2026-09-26: the Cloudflare Worker in kryptex-worker/ does
+# this every minute. GitHub's cron ran 3-5 h late, so the schedule was
+# removed; keep this for a one-off run (Actions -> pool-stats -> Run workflow).
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 permissions:
