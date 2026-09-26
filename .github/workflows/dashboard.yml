@@ -52,6 +52,15 @@ jobs:
       - name: Skip (no CLOUDFLARE_API_TOKEN secret yet)
         if: steps.has.outputs.token != 'yes'
         run: echo "::notice::CLOUDFLARE_API_TOKEN is not set; dashboard not deployed."
+      - name: Verify the Cloudflare token (prints status only, never the token)
+        if: steps.has.outputs.token == 'yes'
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "token length: ${#CF}"
+          case "$CF" in *[[:space:]]*) echo "::warning::token contains whitespace or a line break" ;; esac
+          curl -s https://api.cloudflare.com/client/v4/user/tokens/verify -H "Authorization: Bearer $CF" \
+            | python3 -c 'import json,sys; r=json.load(sys.stdin); print("success:", r.get("success"), "status:", (r.get("result") or {}).get("status"), "errors:", r.get("errors"))'
       - name: Deploy
         if: steps.has.outputs.token == 'yes'
         uses: cloudflare/wrangler-action@v3
